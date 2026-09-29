@@ -1,0 +1,69 @@
+{
+  "_note": "MVP用の事前収集データ(RAG代替・T16)。keywords はチームで記述した内部利用向けの特徴語で、Wikipedia 本文の転載ではない。ユーザー向けには出典リンクのみ表示する(T13)。対象ジャンル・内容はデモ前に要見直し。",
+  "genres": [
+    {
+      "id": "punk",
+      "name": "パンク",
+      "aliases": ["パンク", "パンクロック", "punk", "メロコア", "ハードコア"],
+      "source_title": "パンク・ファッション - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/パンク・ファッション",
+      "keywords": ["黒", "赤", "タータンチェック", "レザージャケット", "スタッズ", "安全ピン", "ダメージ加工", "バンドTシャツ", "ブーツ", "DIY"]
+    },
+    {
+      "id": "hiphop",
+      "name": "ヒップホップ",
+      "aliases": ["ヒップホップ", "hiphop", "hip hop", "ラップ", "rap"],
+      "source_title": "ヒップホップ・ファッション - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/ヒップホップ・ファッション",
+      "keywords": ["オーバーサイズ", "スウェット", "フーディ", "ワイドパンツ", "スニーカー", "キャップ", "ゴールドアクセサリー", "スポーツウェア", "ロゴ"]
+    },
+    {
+      "id": "visual_kei",
+      "name": "ヴィジュアル系",
+      "aliases": ["ヴィジュアル系", "V系", "visual kei", "ビジュアル系"],
+      "source_title": "ヴィジュアル系 - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/ヴィジュアル系",
+      "keywords": ["黒", "モノトーン", "レース", "レザー", "ゴシック", "厚底", "シルバーアクセサリー", "ロング丈", "ベルト・ストラップ"]
+    },
+    {
+      "id": "metal",
+      "name": "ヘヴィメタル",
+      "aliases": ["メタル", "ヘヴィメタル", "ヘビメタ", "metal", "メタルコア", "デスメタル"],
+      "source_title": "ヘヴィメタル - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/ヘヴィメタル",
+      "keywords": ["黒", "バンドTシャツ", "レザー", "デニムベスト", "パッチ", "スタッズ", "ブーツ", "チェーン"]
+    },
+    {
+      "id": "idol",
+      "name": "アイドル",
+      "aliases": ["アイドル", "idol", "女性アイドル", "男性アイドル", "地下アイドル"],
+      "source_title": "アイドル - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/アイドル",
+      "keywords": ["推し色(メンバーカラー)", "公式グッズTシャツ", "タオル", "リボン", "明るい色", "動きやすい服", "ペンライト対応"]
+    },
+    {
+      "id": "city_pop",
+      "name": "シティ・ポップ",
+      "aliases": ["シティポップ", "シティ・ポップ", "city pop", "AOR"],
+      "source_title": "シティ・ポップ - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/シティ・ポップ",
+      "keywords": ["パステル", "ネオン", "リゾート感", "開襟シャツ", "テーラードジャケット", "スラックス", "ローファー", "80年代"]
+    },
+    {
+      "id": "jrock",
+      "name": "邦ロック",
+      "aliases": ["邦ロック", "J-ROCK", "ロック", "rock", "ギターロック", "オルタナ"],
+      "source_title": "ロック (音楽) - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/ロック_(音楽)",
+      "keywords": ["バンドTシャツ", "ラババン", "タオル", "スニーカー", "動きやすいパンツ", "黒", "身軽さ", "ロッカー利用"]
+    },
+    {
+      "id": "edm",
+      "name": "EDM・クラブミュージック",
+      "aliases": ["EDM", "テクノ", "ハウス", "クラブ", "レイヴ", "エレクトロ", "techno", "house"],
+      "source_title": "レイヴ - Wikipedia",
+      "source_url": "https://ja.wikipedia.org/wiki/レイヴ",
+      "keywords": ["蛍光色", "メタリック", "ブラックライト映え", "スポーティ", "サングラス", "軽装", "スニーカー"]
+    }
+  ]
+}

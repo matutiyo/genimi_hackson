@@ -1,0 +1,116 @@
+import pytest
+
+from app.config import Settings
+from app.gemini import GeminiGateway
+from app.mock_gemini import MockGeminiGateway
+from app.schemas import ClosetImage, EventInput
+from app.service import run_proposal
+
+PNG = b"\x89PNG\r\n\x1a\nfake"
+
+
+def images(*names: str) -> list[ClosetImage]:
+    return [ClosetImage(index=i, filename=n, mime_type="image/png", data=PNG) for i, n in enumerate(names)]
+
+
+def settings() -> Settings:
+    return Settings(use_mock_gemini=True, step_timeout_sec=5)
+
+
+async def collect(inp: EventInput, imgs: list[ClosetImage], gateway=None) -> list[dict]:
+    s = settings()
+    return [m async for m in run_proposal(inp, imgs, s, gateway or MockGeminiGateway(s))]
+
+
+MANUAL = EventInput(artist_name="テストバンド", genre="パンク", event_date="2026-12-05", venue="Zepp Haneda",
+                    mv_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+
+@pytest.mark.asyncio
+async def test_full_flow_runs_critic_loop_and_returns_result():
+    msgs = await collect(MANUAL, images("a.png", "b.png", "c.png", "d.png"))
+    steps = [m["step"] for m in msgs if m["type"] == "step"]
+    # 1回目は Critic 不合格 → 再生成 → 合格
+    assert steps.count("outfit_generator") == 2
+    critic_events = [m for m in msgs if m.get("step") == "critic"]
+    assert [c["passed"] for c in critic_events] == [False, True]
+
+    result = msgs[-1]["result"]
+    assert msgs[-1]["type"] == "result"
+    assert result["culture"]["genre_id"] == "punk"
+    assert result["culture"]["source_url"].startswith("https://ja.wikipedia.org/")
+    assert result["mv_style"]["analyzed_from"] == "video"
+    assert result["venue_weather"]["season"] == "冬"
+    assert {i["category"] for i in result["items"]} >= {"tops", "bottoms", "shoes"}
+    assert result["image_base64"]
+    assert result["critic"]["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_url_failure_falls_back_to_manual_input():
+    inp = MANUAL.model_copy(update={"event_url": "https://example.com/fail"})
+    msgs = await collect(inp, images("a.png", "b.png", "c.png"))
+    result = msgs[-1]["result"]
+    assert result["event"]["artist_name"] == "テストバンド"
+    assert any("公演URL" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+async def test_url_only_success():
+    msgs = await collect(EventInput(event_url="https://example.com/live"), images("a.png", "b.png", "c.png"))
+    result = msgs[-1]["result"]
+    assert result["event"]["source"] == "url"
+    assert result["event"]["venue"] == "Zepp Haneda"
+
+
+@pytest.mark.asyncio
+async def test_url_failure_without_artist_is_fatal():
+    msgs = await collect(EventInput(event_url="https://example.com/fail"), images("a.png"))
+    assert msgs[-1]["type"] == "error"
+    assert "アーティスト名" in msgs[-1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_mv_failure_uses_thumbnail_and_missing_mv_is_noted():
+    msgs = await collect(MANUAL.model_copy(update={"mv_url": "https://youtu.be/fail0000000"}), images("a.png", "b.png", "c.png"))
+    assert msgs[-1]["result"]["mv_style"]["analyzed_from"] == "thumbnail"
+    msgs = await collect(MANUAL.model_copy(update={"mv_url": None}), images("a.png", "b.png", "c.png"))
+    assert any("MV" in n for n in msgs[-1]["result"]["notes"])
+
+
+@pytest.mark.asyncio
+async def test_closet_partial_and_total_failure():
+    msgs = await collect(MANUAL, images("a.png", "fail.png", "c.png", "d.png"))
+    assert any("fail.png" in n for n in msgs[-1]["result"]["notes"])
+    msgs = await collect(MANUAL, images("fail1.png", "fail2.png"))
+    assert msgs[-1]["type"] == "error"
+
+
+class BrokenGateway(MockGeminiGateway):
+    """P08 以外のすべての Gemini 呼び出しが失敗するケース。"""
+
+    async def _boom(self, *a, **k):
+        raise RuntimeError("API down")
+
+    match_genre = summarize_culture = analyze_mv_video = analyze_mv_thumbnail = _boom
+    infer_venue = integrate_profile = generate_outfit = critique = generate_outfit_image = _boom
+
+
+@pytest.mark.asyncio
+async def test_all_fallbacks_keep_service_running():
+    s = settings()
+    msgs = await collect(MANUAL.model_copy(update={"genre": "謎ジャンル"}), images("a.png", "b.png", "c.png"), BrokenGateway(s))
+    assert msgs[-1]["type"] == "result"
+    result = msgs[-1]["result"]
+    assert result["items"]  # ルールベースの基本コーデ
+    assert result["image_base64"] is None
+    assert any("テキスト" in n for n in result["notes"])
+    assert result["culture"]["covered"] is False
+
+
+def test_gateway_is_real_class_when_not_mocked(monkeypatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
+    from app.gemini import build_gateway
+
+    gw = build_gateway(Settings(use_mock_gemini=False))
+    assert type(gw) is GeminiGateway
