@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fileKey, formatBytes, isPreviewable, newId, shrinkImage } from '../imageUtils'
 import type { ClientConfig, ClosetPhoto } from '../types'
+import { PhotoImg } from './PhotoImg'
 
 interface Props {
   photos: ClosetPhoto[]
@@ -233,7 +234,7 @@ export function ClosetUploader({ photos, onChange, config, consent, onConsentCha
           {photos.map((p, i) => (
             <li key={p.id} className="thumb">
               {p.previewUrl ? (
-                <img src={p.previewUrl} alt={`服の写真 ${i + 1}: ${p.file.name}`} />
+                <PhotoImg photo={p} alt={`服の写真 ${i + 1}: ${p.file.name}`} />
               ) : (
                 <div className="thumb-fallback" title={p.file.name}>
                   <span>{p.file.name.split('.').pop()?.toUpperCase()}</span>
