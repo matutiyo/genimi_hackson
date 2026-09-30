@@ -1,9 +1,9 @@
-import { useEffect, useMemo } from 'react'
-import type { ProposalResult } from '../types'
+import { useState } from 'react'
+import type { ClosetPhoto, ProposalResult } from '../types'
 
 interface Props {
   result: ProposalResult
-  files: File[]
+  photos: ClosetPhoto[]
   onRestart: () => void
 }
 
@@ -35,9 +35,8 @@ const SCORE_LABEL: Record<string, string> = {
 }
 
 /** P14 最終結果の表示(コーデ画像・選定理由・カルチャー解説・注意事項) */
-export function ResultView({ result, files, onRestart }: Props) {
-  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files])
-  useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews])
+export function ResultView({ result, photos, onRestart }: Props) {
+  const [zoomed, setZoomed] = useState(false)
 
   const { event, culture, mv_style: mv, venue_weather: vw, critic } = result
   const imageSrc =
@@ -59,7 +58,19 @@ export function ResultView({ result, files, onRestart }: Props) {
         <div className="hero-body">
           <div className="hero-image">
             {imageSrc ? (
-              <img src={imageSrc} alt="提案コーディネートのイメージ画像" />
+              <>
+                <button
+                  type="button"
+                  className={`hero-zoom ${zoomed ? 'is-zoomed' : ''}`}
+                  onClick={() => setZoomed((z) => !z)}
+                  aria-label={zoomed ? '画像を元の大きさに戻す' : '画像を拡大する'}
+                >
+                  <img src={imageSrc} alt="提案コーディネートのイメージ画像" />
+                </button>
+                <a className="save-link" href={imageSrc} download={`live-outfit.${result.image_mime_type?.split('/')[1] ?? 'png'}`}>
+                  画像を保存
+                </a>
+              </>
             ) : (
               <div className="no-image">画像は生成できませんでした</div>
             )}
@@ -69,7 +80,13 @@ export function ResultView({ result, files, onRestart }: Props) {
             <ul className="items">
               {result.items.map((item) => (
                 <li key={item.item_id}>
-                  {previews[item.image_index] && <img src={previews[item.image_index]} alt="" />}
+                  {photos[item.image_index]?.previewUrl ? (
+                    <img src={photos[item.image_index].previewUrl!} alt="" />
+                  ) : (
+                    <span className="item-no" aria-hidden>
+                      {item.image_index + 1}
+                    </span>
+                  )}
                   <div>
                     <small>{CATEGORY_LABEL[item.category] ?? item.category}</small>
                     <span>{item.name}</span>

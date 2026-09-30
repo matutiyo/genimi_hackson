@@ -89,3 +89,16 @@ export interface ClientConfig {
   allowed_types: string[]
   mock: boolean
 }
+
+// ---- フロントエンド専用の型(バックエンドとは同期不要) ----
+
+/** 入力画面で追加した手持ち服の写真(file は縮小済みで、そのまま送信する) */
+export interface ClosetPhoto {
+  id: string
+  file: File
+  /** 重複追加の判定用(縮小前のファイル名・サイズ) */
+  sourceKey: string
+  /** ブラウザで表示できない形式(HEIC など)は null */
+  previewUrl: string | null
+  originalSize: number
+}

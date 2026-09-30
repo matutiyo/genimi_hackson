@@ -6,6 +6,27 @@ interface Props {
 }
 
 /** P01 公演情報の入力(URL または手動入力) */
+// backend/app/gemini.py の _YOUTUBE_ID と同じ判定
+const YOUTUBE = /(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/
+
+function urlStatus(value: string, kind: 'event' | 'mv'): { ok: boolean; text: string } | null {
+  const v = value.trim()
+  if (!v) return null
+  if (!/^https?:\/\//i.test(v)) return { ok: false, text: 'http:// または https:// から始まるURLを入力してください' }
+  if (kind === 'mv' && !YOUTUBE.test(v)) return { ok: false, text: 'YouTube の動画URLを入力してください' }
+  return { ok: true, text: kind === 'mv' ? 'YouTube の動画URLを認識しました' : 'このページから公演情報を読み取ります' }
+}
+
+function Status({ status }: { status: { ok: boolean; text: string } | null }) {
+  if (!status) return null
+  return (
+    <em className={`field-status ${status.ok ? 'ok' : 'ng'}`} role={status.ok ? undefined : 'alert'}>
+      {status.ok ? '✓ ' : '! '}
+      {status.text}
+    </em>
+  )
+}
+
 export function EventSection({ value, onChange }: Props) {
   const set = (key: keyof EventForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...value, [key]: e.target.value })
@@ -20,6 +41,7 @@ export function EventSection({ value, onChange }: Props) {
       <label className="field">
         <span>公演告知ページのURL</span>
         <input type="url" inputMode="url" placeholder="https://..." value={value.event_url} onChange={set('event_url')} />
+        <Status status={urlStatus(value.event_url, 'event')} />
       </label>
 
       <div className="divider">または手入力</div>
@@ -60,6 +82,7 @@ export function EventSection({ value, onChange }: Props) {
           value={value.mv_url}
           onChange={set('mv_url')}
         />
+        <Status status={urlStatus(value.mv_url, 'mv')} />
         <em className="field-note">公開されている動画のみ解析できます。世界観の読み取りに使います。</em>
       </label>
     </section>

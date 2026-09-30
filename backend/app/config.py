@@ -17,6 +17,8 @@ def _bool(name: str, default: bool) -> bool:
 class Settings:
     # Gemini 呼び出しをモックに差し替える(APIキー無しでの画面確認・テスト用)
     use_mock_gemini: bool = field(default_factory=lambda: _bool("USE_MOCK_GEMINI", False))
+    # モックの各呼び出しに入れる待ち時間(秒)。ロード画面の確認用で、テストでは 0
+    mock_delay_sec: float = field(default_factory=lambda: float(os.getenv("MOCK_DELAY_SEC", "0")))
 
     # モデルID(公開状況で変わるため環境変数で差し替え可能にしている)
     text_model: str = field(default_factory=lambda: os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"))

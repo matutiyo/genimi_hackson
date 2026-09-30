@@ -20,6 +20,7 @@
 # バックエンド
 cd backend && pip install -r requirements-dev.txt
 USE_MOCK_GEMINI=true uvicorn app.main:app --reload --port 8080   # APIキー無しで動作確認
+USE_MOCK_GEMINI=true MOCK_DELAY_SEC=1.5 uvicorn app.main:app --port 8080  # ロード画面の確認用に各処理を遅らせる
 pytest                                                            # テスト(モックで全フロー)
 
 # フロントエンド(/api は 8080 にプロキシ)

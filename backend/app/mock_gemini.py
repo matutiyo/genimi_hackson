@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import re
@@ -52,13 +53,19 @@ class MockGeminiGateway(GeminiGateway):
         self.settings = settings
         self.client = None  # type: ignore[assignment]
 
+    async def _delay(self, factor: float = 1.0) -> None:
+        if self.settings.mock_delay_sec > 0:
+            await asyncio.sleep(self.settings.mock_delay_sec * factor)
+
     async def parse_event_url(self, url: str) -> EventInfo:
+        await self._delay()
         if "fail" in url:
             raise ValueError("モック: URL解析失敗")
         return EventInfo(artist_name="モックバンド", event_title="MOCK TOUR 2026",
                          event_date="2026-12-05", venue="Zepp Haneda", genre_hint="パンク", source="url")
 
     async def match_genre(self, artist: str, genre: str | None, candidates: list[dict]) -> GenreMatch:
+        await self._delay()
         text = f"{artist} {genre or ''}".lower()
         for c in candidates:
             if any(alias.lower() in text for alias in c.get("aliases", [])):
@@ -66,6 +73,7 @@ class MockGeminiGateway(GeminiGateway):
         return GenreMatch(genre_id="jrock", reason="モック: 既定値")
 
     async def summarize_culture(self, artist: str, genre_name: str, keywords: list[str]) -> CultureSummary:
+        await self._delay()
         return CultureSummary(
             explanation=f"{genre_name}系のライブでは、{('・'.join(keywords[:3]))}といった要素を取り入れた服装がよく見られます。"
                         "必ずしも決まりではないので、動きやすさを優先しつつ一部に取り入れるのがおすすめです。(モック)",
@@ -73,6 +81,7 @@ class MockGeminiGateway(GeminiGateway):
         )
 
     async def analyze_mv_video(self, artist: str, youtube_url: str) -> MvStyle:
+        await self._delay()
         if "fail" in youtube_url:
             raise ValueError("モック: 動画解析失敗")
         return MvStyle(color_palette=["黒", "赤", "モノクロ"], lighting_mood="強いコントラストのスポットライト",
@@ -81,19 +90,23 @@ class MockGeminiGateway(GeminiGateway):
                        overall_vibe="荒々しく疾走感のあるライブハウスの空気", analyzed_from="video")
 
     async def analyze_mv_thumbnail(self, artist: str, youtube_url: str) -> MvStyle:
+        await self._delay()
         return MvStyle(color_palette=["黒", "赤"], lighting_mood="暗めの照明", fashion_items=["Tシャツ"],
                        silhouettes=["レギュラー"], overall_vibe="ラフでエネルギッシュ", analyzed_from="thumbnail")
 
     async def infer_venue(self, venue: str) -> VenueInfo:
+        await self._delay()
         return VenueInfo(venue_type="standing", capacity_note="数千人規模のライブハウス",
                          notes=["オールスタンディングのため動きやすい靴が安心", "ロッカーが混むので荷物は最小限に"])
 
     async def analyze_closet_image(self, image: ClosetImage) -> ClosetAnalysis:
+        await self._delay()
         if "fail" in image.filename:
             raise ValueError("モック: 画像解析失敗")
         return ClosetAnalysis(items=[_MOCK_ITEMS[image.index % len(_MOCK_ITEMS)]])
 
     async def integrate_profile(self, prompt: str) -> StyleProfile:
+        await self._delay()
         return StyleProfile(
             summary="黒と赤を軸にしたラフなパンク/ロックスタイル",
             key_colors=["黒", "赤"],
@@ -105,6 +118,7 @@ class MockGeminiGateway(GeminiGateway):
         )
 
     async def generate_outfit(self, prompt: str) -> OutfitCandidate:
+        await self._delay()
         closet = [json.loads(block) for block in re.findall(r"\{[^{}]*\"item_id\"[^{}]*\}", prompt)]
         chosen: list[str] = []
         seen: set[str] = set()
@@ -123,6 +137,7 @@ class MockGeminiGateway(GeminiGateway):
         )
 
     async def critique(self, prompt: str) -> CriticLlmOutput:
+        await self._delay()
         # item 数が少ない1回目の候補は不合格にしてループを通す
         n_items = len(json.loads(prompt.split("## コーディネート候補(選ばれたアイテムの詳細付き)")[1]
                                  .split("評価軸")[0]).get("items", []))
@@ -138,6 +153,7 @@ class MockGeminiGateway(GeminiGateway):
         )
 
     async def generate_outfit_image(self, prompt: str, reference_images: list[ClosetImage]) -> tuple[bytes, str] | None:
+        await self._delay(2)
         names = re.findall(r"^- (.+)$", prompt.split("使用アイテム:")[1].split("雰囲気:")[0], re.M)
         rows = "".join(
             f'<rect x="40" y="{70 + i * 56}" width="320" height="44" rx="8" fill="#{"222222" if i % 2 == 0 else "8b1a1a"}"/>'
