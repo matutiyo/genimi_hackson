@@ -165,7 +165,13 @@ class CultureAgent(StepAgent):
                 logger.warning("ジャンル判定に失敗: %s", exc)
 
         if genre is None:
-            notes.append("このアーティストのジャンルは現在のカルチャー情報の対象外のため、MV解析の結果を中心に提案しています。")
+            # MV 解析は並列で動くため結果は分からない。入力の有無だけで書き分ける
+            if event.mv_url:
+                focus = "MV解析の結果"
+            else:
+                given = [label for label, value in (("会場", event.venue), ("季節", event.event_date)) if value]
+                focus = "・".join(given) + "と手持ち服" if given else "手持ち服"
+            notes.append(f"このアーティストのジャンルは現在のカルチャー情報の対象外のため、{focus}を中心に提案しています。")
             return {"culture": CultureInfo(covered=False).model_dump()}, False
 
         culture = CultureInfo(
@@ -208,7 +214,7 @@ class MvAnalysisAgent(StepAgent):
                 notes.append("MV動画を解析できなかったため、サムネイル画像から雰囲気を読み取りました。")
             except Exception as exc2:  # noqa: BLE001
                 logger.warning("サムネイル解析にも失敗: %s", exc2)
-                notes.append("MVを解析できなかったため、ジャンル情報を中心に提案しています。")
+                notes.append("MVを解析できなかったため、MVの雰囲気は提案に反映していません。")
                 mv = MvStyle(analyzed_from="none")
         return {"mv_style": mv.model_dump()}, False
 
@@ -244,6 +250,7 @@ class VenueWeatherAgent(StepAgent):
             result.season = season
             result.weather_note = _SEASON_NOTES[season]
             result.weather_source = "season_fixed"
+            notes.append("天気は公演日の季節から一般的な目安を表示しています(当日の予報ではありません)。")
         else:
             notes.append("公演日が不明なため、季節・天気は考慮していません。")
         if event.venue:
@@ -252,7 +259,6 @@ class VenueWeatherAgent(StepAgent):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("会場情報の取得に失敗: %s", exc)
                 result.venue = VenueInfo(venue_type="unknown")
-        notes.append("天気は公演日の季節から一般的な目安を表示しています(当日の予報ではありません)。")
         return {"venue_weather": result.model_dump()}, False
 
 
@@ -271,6 +277,10 @@ class ClosetAnalysisAgent(StepAgent):
             if isinstance(res, BaseException):
                 logger.warning("画像 %s の解析に失敗: %s", img.filename, res)
                 notes.append(f"画像「{img.filename}」は服を読み取れなかったためスキップしました。")
+                continue
+            if not res.items:
+                # 解析は成功したが服が写っていない(風景・小物以外の物など)
+                notes.append(f"画像「{img.filename}」には服が写っていないと判断したため、提案には使っていません。")
                 continue
             for k, raw in enumerate(res.items):
                 items.append(ClosetItem(item_id=f"img{img.index}-{k}", image_index=img.index, **raw.model_dump()))

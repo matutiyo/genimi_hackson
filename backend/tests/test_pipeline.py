@@ -86,6 +86,48 @@ async def test_closet_partial_and_total_failure():
     assert msgs[-1]["type"] == "error"
 
 
+
+@pytest.mark.asyncio
+async def test_image_without_clothes_is_skipped_with_note():
+    msgs = await collect(MANUAL, images("a.png", "empty.png", "c.png"))
+    result = msgs[-1]["result"]
+    assert any("empty.png" in n and "服が写っていない" in n for n in result["notes"])
+    assert all(i["image_index"] != 1 for i in result["items"])
+    msgs = await collect(MANUAL, images("empty1.png", "empty2.png"))
+    assert msgs[-1]["type"] == "error"
+
+
+class NoGenreGateway(MockGeminiGateway):
+    """ジャンル判定だけ失敗する(カルチャー情報の対象外になる)ケース。"""
+
+    async def match_genre(self, *a, **k):
+        raise RuntimeError("no genre")
+
+
+@pytest.mark.asyncio
+async def test_notes_match_the_given_input():
+    # MV・公演日なし: 「MV解析の結果を中心に」「天気は公演日の季節から」は出さない
+    inp = EventInput(artist_name="テストバンド", genre="謎ジャンル")
+    msgs = await collect(inp, images("a.png", "b.png", "c.png"), NoGenreGateway(settings()))
+    notes = msgs[-1]["result"]["notes"]
+    assert any("手持ち服を中心に" in n and "会場" not in n and "季節" not in n for n in notes)
+    assert not any("MV解析の結果を中心に" in n for n in notes)
+    assert not any("天気は公演日の季節から" in n for n in notes)
+    assert any("公演日が不明" in n for n in notes)
+
+    # MV・公演日あり: MV を中心にした旨と天気の目安を出す
+    msgs = await collect(MANUAL.model_copy(update={"genre": "謎ジャンル"}), images("a.png", "b.png", "c.png"),
+                         NoGenreGateway(settings()))
+    notes = msgs[-1]["result"]["notes"]
+    assert any("MV解析の結果を中心に" in n for n in notes)
+    assert any("天気は公演日の季節から" in n for n in notes)
+
+    # MV なし・会場と公演日あり: 入力された情報だけを挙げる
+    inp = EventInput(artist_name="テストバンド", genre="謎ジャンル", venue="Zepp Haneda", event_date="2026-12-05")
+    msgs = await collect(inp, images("a.png", "b.png", "c.png"), NoGenreGateway(settings()))
+    assert any("会場・季節と手持ち服を中心に" in n for n in msgs[-1]["result"]["notes"])
+
+
 class BrokenGateway(MockGeminiGateway):
     """P08 以外のすべての Gemini 呼び出しが失敗するケース。"""
 
