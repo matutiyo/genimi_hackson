@@ -82,17 +82,14 @@ cd backend && pytest
 ## Cloud Run へのデプロイ
 
 ```bash
-gcloud run deploy live-outfit-agent \
-  --source . \
-  --region asia-northeast1 \
-  --allow-unauthenticated \
-  --set-secrets GOOGLE_API_KEY=gemini-api-key:latest \
-  --timeout 300
+gcloud run deploy live-outfit-agent   --source .   --region asia-northeast1   --allow-unauthenticated   --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=<プロジェクトID>,GOOGLE_CLOUD_LOCATION=global   --timeout 300
 ```
 
-- APIキーは Secret Manager に登録して `--set-secrets` で渡します(F33)。
-- Vertex AI 経由にする場合は `GOOGLE_GENAI_USE_VERTEXAI=TRUE`、`GOOGLE_CLOUD_PROJECT`、`GOOGLE_CLOUD_LOCATION` を設定し、
-  サービスアカウントに `roles/aiplatform.user` を付与します(T08)。
+- 現在は **Vertex AI 経由**で運用しています(GCP の請求先アカウント/クーポンのクレジットで課金される)。
+  事前に `aiplatform.googleapis.com` を有効化し、Cloud Run のサービスアカウントに `roles/aiplatform.user` を付与します(T08)。
+- `GOOGLE_CLOUD_LOCATION=global` にする理由: 画像生成モデル(`gemini-3.1-flash-image`)は asia-northeast1 では提供されていないため。
+- Gemini API(AI Studio のキー)を使う場合は `--set-secrets GOOGLE_API_KEY=gemini-api-key:latest` を指定します(F33)。
+  ただし AI Studio は前払い制で、新規ユーザーは `gemini-2.5-flash` を利用できません(`GEMINI_*_MODEL` で新しいモデルに変更が必要)。
 - 画像はリクエスト中のメモリでのみ扱い、保存しません(永続保存は MVP 対象外)。
 
 ## 未対応・要確認
@@ -101,6 +98,6 @@ gcloud run deploy live-outfit-agent \
 - **手動タグ入力**(服画像の解析失敗時): 現状はスキップして注意事項に表示するのみ。
 - **天気**: 季節の固定文言で代替(Weather API の日本国内提供可否 T11 が未確認のため)。
 - **F27 生成画像のガイドライン適合チェック**: プロンプトでの制約のみ。自動チェックは未実装。
-- **モデルID**: `GEMINI_*_MODEL` で差し替え可能。画像生成の既定値 `gemini-3.1-flash-image` は実機で要確認(T03)。
+- **モデルID**: `GEMINI_*_MODEL` で差し替え可能。Vertex AI(global)で既定値の `gemini-2.5-flash` / `gemini-3.1-flash-image` の動作を確認済み(T03)。新規プロジェクトは画像生成のクォータが小さく 429 になりやすい(その場合は画像なしで結果を返す)。
 - **ADK**: 2.x では Sequential/Parallel/LoopAgent が非推奨(Workflow 推奨)。現時点では動作するため設計資料どおり使用。
 - **カルチャー情報データ**: 対象ジャンル・キーワードはデモ前にチームで見直し(T13 / T16)。

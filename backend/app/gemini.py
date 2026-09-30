@@ -125,7 +125,8 @@ class GeminiGateway:
         result = await self._structured(
             self.settings.video_model,
             [
-                types.Part(file_data=types.FileData(file_uri=youtube_url)),
+                # Vertex AI は mime_type 必須(Gemini API では省略可)
+                types.Part(file_data=types.FileData(file_uri=youtube_url, mime_type="video/mp4")),
                 prompts.MV_ANALYSIS_PROMPT.format(source="動画", artist=artist, safety=prompts.SAFETY_NOTE),
             ],
             MvStyle,
