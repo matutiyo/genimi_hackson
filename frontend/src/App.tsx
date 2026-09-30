@@ -27,6 +27,15 @@ function checklist(form: EventForm, photos: ClosetPhoto[], consent: boolean) {
   ]
 }
 
+/** 画面のスリープを防ぐ(Wake Lock API 非対応・拒否時は何もしない) */
+async function requestWakeLock(): Promise<WakeLockSentinel | null> {
+  try {
+    return (await navigator.wakeLock?.request('screen')) ?? null
+  } catch {
+    return null
+  }
+}
+
 function initialProgress(): ProgressState {
   const now = Date.now()
   return { status: 'sending', steps: [], retries: 0, startedAt: now, lastUpdateAt: now }
@@ -127,6 +136,13 @@ export default function App() {
     setProgress(initialProgress())
     setPhase('running')
     abortRef.current = new AbortController()
+    // スマホは画面ロックやアプリ切替で通信が切れやすいので、処理中はスリープを防ぎ、裏に回ったかを記録する
+    const wakeLock = await requestWakeLock()
+    let wentHidden = document.visibilityState === 'hidden'
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') wentHidden = true
+    }
+    document.addEventListener('visibilitychange', onVisibility)
     try {
       await requestProposal(
         form,
@@ -140,10 +156,15 @@ export default function App() {
       setErrors(
         err instanceof ValidationError
           ? err.errors
-          : ['サーバーと通信できませんでした。ネットワーク接続を確認して、もう一度お試しください。'],
+          : wentHidden
+            ? ['処理中に画面が閉じられた(または別のアプリに切り替えた)ため、通信が途切れました。画面を開いたまま、もう一度お試しください。']
+            : ['サーバーと通信できませんでした。ネットワーク接続を確認して、もう一度お試しください。'],
       )
       setErrorFocus((n) => n + 1)
       setPhase('input')
+    } finally {
+      document.removeEventListener('visibilitychange', onVisibility)
+      wakeLock?.release().catch(() => {})
     }
   }
 

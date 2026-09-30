@@ -59,17 +59,17 @@ export function ResultView({ result, photos, onRestart }: Props) {
           <div className="hero-image">
             {imageSrc ? (
               <>
-                <button
-                  type="button"
-                  className={`hero-zoom ${zoomed ? 'is-zoomed' : ''}`}
-                  onClick={() => setZoomed((z) => !z)}
-                  aria-label={zoomed ? '画像を元の大きさに戻す' : '画像を拡大する'}
-                >
+                {/* img を button で包むと iOS で長押し保存できないため、画像そのものをクリック対象にする */}
+                <div className={`hero-zoom ${zoomed ? 'is-zoomed' : ''}`} onClick={() => setZoomed((z) => !z)}>
                   <img src={imageSrc} alt="提案コーディネートのイメージ画像" />
-                </button>
+                </div>
                 <a className="save-link" href={imageSrc} download={`live-outfit.${result.image_mime_type?.split('/')[1] ?? 'png'}`}>
                   画像を保存
                 </a>
+                <button type="button" className="ghost zoom-button" onClick={() => setZoomed(true)}>
+                  拡大して見る
+                </button>
+                <p className="hint save-hint">スマホは画像を長押しすると写真に保存できます</p>
               </>
             ) : (
               <div className="no-image">画像は生成できませんでした</div>

@@ -21,21 +21,32 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`
 }
 
+/** EXIF の向きを反映してデコードする(オプション非対応のブラウザでは付けずに再試行) */
+async function decode(file: File): Promise<ImageBitmap | null> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' })
+  } catch {
+    try {
+      return await createImageBitmap(file)
+    } catch {
+      return null
+    }
+  }
+}
+
 /**
  * 大きな写真を長辺 MAX_EDGE の JPEG に縮小する。
+ * HEIC などはデコードできるブラウザ(iOS Safari など)なら JPEG に変換してプレビュー可能にする。
  * 縮小できない形式・失敗時は元のファイルをそのまま返す(送信は止めない)。
  */
 export async function shrinkImage(file: File): Promise<File> {
-  if (!isPreviewable(file) || file.type === 'image/gif') return file
-  let bitmap: ImageBitmap
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-  } catch {
-    return file
-  }
+  if (file.type === 'image/gif') return file
+  const convert = !isPreviewable(file)
+  const bitmap = await decode(file)
+  if (!bitmap) return file
   try {
     const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
-    if (scale === 1 && file.size <= SKIP_BYTES) return file
+    if (!convert && scale === 1 && file.size <= SKIP_BYTES) return file
 
     const canvas = document.createElement('canvas')
     canvas.width = Math.round(bitmap.width * scale)
@@ -47,10 +58,23 @@ export async function shrinkImage(file: File): Promise<File> {
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY))
-    if (!blob || blob.size >= file.size) return file
+    // iOS Safari はキャンバスのメモリを GC まで保持するので明示的に解放する
+    canvas.width = 0
+    canvas.height = 0
+    if (!blob || (!convert && blob.size >= file.size)) return file
     const name = file.name.replace(/\.[^.]+$/, '') + '.jpg'
     return new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified })
   } finally {
     bitmap.close()
   }
+}
+
+/** crypto.randomUUID は HTTPS / localhost でしか使えないため、LAN 経由の実機確認用に代替する */
+let idSeq = 0
+export function newId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' && window.isSecureContext) {
+    return crypto.randomUUID()
+  }
+  idSeq += 1
+  return `photo-${Date.now()}-${idSeq}`
 }

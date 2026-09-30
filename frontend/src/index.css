@@ -587,7 +587,7 @@ button.ghost.danger {
 /* ---------- submit ---------- */
 .submit-bar {
   position: sticky;
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
@@ -598,6 +598,7 @@ button.ghost.danger {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 30px rgba(31, 27, 36, 0.14);
 }
@@ -646,7 +647,7 @@ button.ghost.danger {
     gap: 8px;
   }
   .submit-bar {
-    bottom: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     gap: 8px;
     border-radius: 18px;
     padding: 10px;
@@ -1081,12 +1082,22 @@ button.secondary:hover {
   }
 }
 .hero-zoom {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: none;
   cursor: zoom-in;
+}
+.hero-zoom img {
+  -webkit-touch-callout: default;
+}
+.zoom-button {
+  margin: 8px 0 0 8px;
+}
+.save-hint {
+  margin-top: 4px !important;
+  font-size: 0.75rem;
+}
+.keep-open {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: -8px 0 16px !important;
 }
 .hero-zoom.is-zoomed {
   position: fixed;

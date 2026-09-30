@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fileKey, formatBytes, isPreviewable, shrinkImage } from '../imageUtils'
+import { fileKey, formatBytes, isPreviewable, newId, shrinkImage } from '../imageUtils'
 import type { ClientConfig, ClosetPhoto } from '../types'
 
 interface Props {
@@ -85,32 +85,27 @@ export function ClosetUploader({ photos, onChange, config, consent, onConsentCha
       queue.forEach((f) => pendingKeysRef.current.add(fileKey(f)))
       preparingRef.current += queue.length
       setPreparing(preparingRef.current)
-      const results = await Promise.all(
-        queue.map(async (f) => {
-          const file = await shrinkImage(f)
-          return { f, file }
-        }),
-      )
+      // スマホで大きな写真を同時にデコードするとメモリ不足になるため1枚ずつ処理し、終わった順に表示する
       const tooLarge: string[] = []
-      const added: ClosetPhoto[] = []
-      for (const { f, file } of results) {
+      for (const f of queue) {
+        const file = await shrinkImage(f)
+        pendingKeysRef.current.delete(fileKey(f))
+        preparingRef.current -= 1
+        setPreparing(preparingRef.current)
         if (file.size > maxMb * 1024 * 1024) {
           tooLarge.push(`「${f.name}」は${maxMb}MBを超えています(${formatBytes(file.size)})`)
           continue
         }
-        added.push({
-          id: crypto.randomUUID(),
+        const photo: ClosetPhoto = {
+          id: newId(),
           file,
           sourceKey: fileKey(f),
           previewUrl: isPreviewable(file) ? URL.createObjectURL(file) : null,
           originalSize: f.size,
-        })
+        }
+        onChange((prev) => [...prev, photo].slice(0, maxImages))
       }
-      queue.forEach((f) => pendingKeysRef.current.delete(fileKey(f)))
-      preparingRef.current -= queue.length
-      setPreparing(preparingRef.current)
       if (tooLarge.length) setWarnings((w) => [...w, ...tooLarge])
-      onChange((prev) => [...prev, ...added].slice(0, maxImages))
     },
     [allowed, maxImages, maxMb, onChange],
   )

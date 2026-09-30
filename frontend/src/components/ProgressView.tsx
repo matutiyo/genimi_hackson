@@ -163,6 +163,8 @@ export function ProgressView({ progress, photos }: { progress: ProgressState; ph
         </div>
       </div>
 
+      {status !== 'done' && <p className="keep-open">完了まで、この画面を開いたままお待ちください</p>}
+
       {elapsed >= 150 && status !== 'done' && (
         <p className="slow-note" role="status">
           いつもより時間がかかっています。画面を閉じずにそのままお待ちください。
