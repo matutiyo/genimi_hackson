@@ -103,6 +103,8 @@ class MockGeminiGateway(GeminiGateway):
         await self._delay()
         if "fail" in image.filename:
             raise ValueError("モック: 画像解析失敗")
+        if "empty" in image.filename:  # 服が写っていない画像
+            return ClosetAnalysis(items=[])
         return ClosetAnalysis(items=[_MOCK_ITEMS[image.index % len(_MOCK_ITEMS)]])
 
     async def integrate_profile(self, prompt: str) -> StyleProfile:
