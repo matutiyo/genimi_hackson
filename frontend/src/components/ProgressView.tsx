@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ClosetPhoto } from '../types'
+import { PhotoImg } from './PhotoImg'
 
 export interface StepState {
   step: string
@@ -185,7 +186,7 @@ export function ProgressView({ progress, photos }: { progress: ProgressState; ph
           <ul>
             {photos.map((p, i) => (
               <li key={p.id} style={{ animationDelay: `${i * 180}ms` }}>
-                {p.previewUrl ? <img src={p.previewUrl} alt="" /> : <span className="thumb-fallback mini">{i + 1}</span>}
+                {p.previewUrl ? <PhotoImg photo={p} alt="" /> : <span className="thumb-fallback mini">{i + 1}</span>}
               </li>
             ))}
           </ul>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ClosetPhoto, ProposalResult } from '../types'
+import { PhotoImg } from './PhotoImg'
 
 interface Props {
   result: ProposalResult
@@ -81,7 +82,7 @@ export function ResultView({ result, photos, onRestart }: Props) {
               {result.items.map((item) => (
                 <li key={item.item_id}>
                   {photos[item.image_index]?.previewUrl ? (
-                    <img src={photos[item.image_index].previewUrl!} alt="" />
+                    <PhotoImg photo={photos[item.image_index]} alt="" />
                   ) : (
                     <span className="item-no" aria-hidden>
                       {item.image_index + 1}
