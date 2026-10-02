@@ -16,14 +16,18 @@ from pydantic import BaseModel, Field
 # 入力(P01 / P02)
 # ---------------------------------------------------------------------------
 class EventInput(BaseModel):
-    """P01 公演情報の入力値(URL または手動入力)。"""
+    """P01 公演情報の入力値(キーワード検索の結果 または手動入力)。
 
-    event_url: str | None = Field(default=None, description="公演告知ページのURL")
+    URL の直接入力は受け付けない。公式MVのURLはキーワード検索(P04)で見つかったものだけを使う。
+    """
+
+    keyword: str | None = Field(default=None, description="検索キーワード(アーティスト名・公演名など)")
     artist_name: str | None = Field(default=None, description="アーティスト名")
+    event_title: str | None = Field(default=None, description="公演名(任意)")
     genre: str | None = Field(default=None, description="ジャンル(任意)")
     event_date: str | None = Field(default=None, description="公演日 YYYY-MM-DD")
     venue: str | None = Field(default=None, description="会場名")
-    mv_url: str | None = Field(default=None, description="公式MVのYouTube公開URL")
+    mv_url: str | None = Field(default=None, description="キーワード検索で見つかった公式MVのYouTube URL")
 
 
 class ClosetImage(BaseModel):
@@ -45,7 +49,29 @@ class EventInfo(BaseModel):
     venue: str | None = None
     genre_hint: str | None = None
     mv_url: str | None = None
-    source: Literal["url", "manual", "url+manual"] = "manual"
+    source: Literal["search", "manual", "search+manual"] = "manual"
+
+
+class EventCandidate(BaseModel):
+    """キーワード検索で見つかった公演の候補(ユーザーが選ぶ)。"""
+
+    artist_name: str
+    event_title: str | None = None
+    event_date: str | None = Field(default=None, description="YYYY-MM-DD")
+    venue: str | None = None
+    genre_hint: str | None = None
+    mv_url: str | None = Field(default=None, description="公式チャンネルで公開されているMVのURL(確認済みのもののみ)")
+    mv_title: str | None = None
+
+
+class SearchSource(BaseModel):
+    title: str
+    url: str
+
+
+class EventSearchResult(BaseModel):
+    candidates: list[EventCandidate] = Field(default_factory=list)
+    sources: list[SearchSource] = Field(default_factory=list, description="検索で参照したページ(出典表示用)")
 
 
 # ---------------------------------------------------------------------------

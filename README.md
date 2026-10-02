@@ -1,6 +1,7 @@
 # はじめてのライブ服(初ジャンルのライブ用 服装エージェント)
 
-行くライブ(公演・アーティスト情報)と手持ちの服の写真から、会場で浮かないコーディネートを提案する Web アプリです。
+行くライブ(公演・アーティスト情報)と手持ちの服の写真から、会場で浮かないコーディネートを提案するアプリです。
+画面は Flutter(web / Android / iOS)で実装し、公演はキーワード検索で探します(URL の直接入力は受け付けません)。
 Google ADK でエージェントの処理フローを組み、Gemini(Vertex AI 経由)で解析・生成を行います。
 
 ---
@@ -9,21 +10,23 @@ Google ADK でエージェントの処理フローを組み、Gemini(Vertex AI �
 
 | ID | 区分 | 機能 | 状態 | 入力 → 出力 | 実装場所 |
 | --- | --- | --- | --- | --- | --- |
-| F01 | 画面 | 入力受付画面UI | ✅ 実装済み | ユーザー操作 → 入力データ(公演情報) | `frontend/src/App.tsx`, `components/EventSection.tsx` |
-| F02 | 画面 | クローゼット画像アップロードUI | ✅ 実装済み | ユーザー操作 → 画像ファイル(複数) | `components/ClosetUploader.tsx`, `imageUtils.ts` |
-| F03 | 画面 | 結果表示画面UI | ✅ 実装済み | F28 の表示用統合データ → 画面表示 | `components/ResultView.tsx`(データは `backend/app/service.py` の `build_result`) |
-| F04 | 画面 | 進捗表示・ローディングUI | ✅ 実装済み | 処理ステータス → 進捗表示 | `components/ProgressView.tsx`, `api.ts` |
-| F05 | 入力 | 公演情報入力受付 | ✅ 実装済み | URL またはテキスト → 公演情報 | 画面: `components/EventSection.tsx` / API: `backend/app/main.py` の `validate_event_input` |
-| F06 | 入力 | クローゼット画像登録受付 | ⚠️ 一部(保存しない) | 画像ファイル → 画像への参照 | 画面: `components/ClosetUploader.tsx` / API: `backend/app/main.py` の `create_proposal` |
+| F01 | 画面 | 入力受付画面UI | ✅ 実装済み | ユーザー操作 → 入力データ(公演情報) | `frontend/lib/main.dart`, `widgets/event_search_section.dart` |
+| F02 | 画面 | クローゼット画像アップロードUI | ✅ 実装済み | ユーザー操作 → 画像ファイル(複数) | `widgets/closet_section.dart` |
+| F03 | 画面 | 結果表示画面UI | ✅ 実装済み | F28 の表示用統合データ → 画面表示 | `screens/result_view.dart`(データは `backend/app/service.py` の `build_result`) |
+| F04 | 画面 | 進捗表示・ローディングUI | ✅ 実装済み | 処理ステータス → 進捗表示 | `screens/progress_view.dart`, `api.dart` |
+| F05 | 入力 | 公演情報入力受付 | ✅ 実装済み | キーワード検索 またはテキスト → 公演情報 | 画面: `widgets/event_search_section.dart` / API: `backend/app/main.py` の `search_events`・`validate_event_input` |
+| F06 | 入力 | クローゼット画像登録受付 | ⚠️ 一部(保存しない) | 画像ファイル → 画像への参照 | 画面: `widgets/closet_section.dart` / API: `backend/app/main.py` の `create_proposal` |
 | F07 | 入力 | 希望条件入力受付 | ❌ 未実装 | 選択項目 → 希望条件データ | —(MVP 対象外) |
 
 **設計資料との差分**
 
 - **F06**: 設計では「ストレージ等に保持」だが、MVP では **Cloud Storage 等に保存せず、1回のリクエストの処理中だけメモリで保持**する。
   個人の服の写真を残さないため(データ永続化は MVP 対象外)。画像は `ClosetImage` として ADK の state ではなく `PipelineDeps` で持つ。
+- **F05**: 設計では「URL またはテキスト」だったが、公演ページや MV の **URL を利用者が直接入力する方式は著作権への配慮から廃止**し、
+  キーワード検索(Gemini + Google 検索グラウンディング)で公演を探して選ぶ方式に変更した。
 - **F07**: MVP 対象外のため未実装。F01 の入力フォームにも希望条件の項目はない(追加する場合の手順は[後述](#f07-希望条件入力受付未実装))。
 
-画面の文言・エラーメッセージはすべて日本語。動作確認は Chrome(Windows)と WebKit(iPhone 13 相当)、スマホ幅 390px で実施している。
+画面の文言・エラーメッセージはすべて日本語。動作確認は Flutter web(Chromium、スマホ幅 390px)とウィジェットテストで実施している。
 
 ---
 
@@ -31,37 +34,37 @@ Google ADK でエージェントの処理フローを組み、Gemini(Vertex AI �
 
 ### F01 入力受付画面UI
 
-入力画面は「① 行くライブの情報(F05)」「② 手持ちの服(F02)」の2つのカードと、画面下に固定した送信バーで構成する。
+入力画面は「① 行くライブを検索(F05)」「② 手持ちの服(F02)」の2つのカードと、画面下に固定した送信バーで構成する。
 
 - **進み具合の表示**: 画面上部に「1 入力 → 2 AIが考え中 → 3 提案」の3段階を表示
 - **送信前チェックリスト**: 送信バーに次の3つの充足状況を ✓ で表示
-  1. 公演URL またはアーティスト名
+  1. 検索キーワード またはアーティスト名
   2. 服の写真(枚数も表示)
   3. 画像利用への同意
-- **エラー表示**: 一度送信を試みた後は、未入力の項目をリアルタイムに表示し、入力すると消える。サーバーのエラー(F05・F06 の 422 など)も同じ枠に表示し、枠にフォーカスを移す
+- **エラー表示**: 一度送信を試みた後は、未入力の項目をリアルタイムに表示し、入力すると消える。サーバーのエラー(F05・F06 の 422 など)も同じ枠に表示し、画面の先頭へスクロールする
 - **キャンセル**: 処理中にキャンセルすると入力画面に戻り、入力内容・写真はそのまま残る
-- **スマホ対応**: 入力欄の文字は 16px(iOS の自動ズーム防止)、入力欄の高さ 44px・主要ボタン 48px、ホームバーに送信バーが重ならないよう safe-area を考慮
+- **スマホ対応**: 入力欄の文字は 16px、主要ボタン 48px、ホームバーに送信バーが重ならないよう SafeArea を考慮。幅 880px を上限に中央寄せ
 
 ### F02 クローゼット画像アップロードUI
 
 | 項目 | 内容 |
 | --- | --- |
-| 追加方法 | ファイル選択 / 画面のどこへでもドラッグ&ドロップ / Ctrl+V で貼り付け / 「カメラで撮る」(タッチ端末のみ表示) |
+| 追加方法 | 「写真を選ぶ」(複数選択)/「カメラで撮る」(Android・iOS のみ表示)。`image_picker` を使用 |
 | 制限 | 最大10枚・1枚10MB まで、JPEG / PNG / WebP / HEIC(値は `GET /api/config` から取得) |
-| 自動縮小 | 長辺 1600px 超または 1.5MB 超の写真は、ブラウザ内で長辺 1600px の JPEG(品質 0.85)に縮小してから送信。写真の向き(EXIF)も反映 |
-| HEIC | デコードできるブラウザ(iOS Safari など)では JPEG に変換してプレビュー表示。できない場合は「HEIC プレビュー非対応」のタイルで表示し、そのまま送信 |
+| 自動縮小 | 選択時に `image_picker` で長辺 1600px・JPEG 品質 85 に縮小してから送信 |
+| HEIC | 表示できない環境(ブラウザなど)では「プレビュー非対応」のタイルで表示し、そのまま送信 |
 | 重複・不正 | 同じ写真(ファイル名+サイズ)の重複、非対応形式、枚数超過は追加せず、理由を警告表示 |
-| 表示 | サムネイルに番号・サイズ(縮小時は「7.5MB→828KB」)・削除ボタン。縮小処理中は「準備中」タイル |
+| 表示 | サムネイルに番号・サイズ・削除ボタン。読み込み中は「準備中」タイル |
 | その他 | 「上手に撮るコツ」の表示、すべて削除、画像利用への同意チェック |
 
-スマホでのメモリ不足を避けるため、写真は1枚ずつ順に処理し、終わったものから表示する。
+旧 Web 版(React)にあったドラッグ&ドロップ・貼り付けは、Flutter 版では未対応。
 
 ### F03 結果表示画面UI
 
 F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り、次を1画面にまとめて表示する。
 
 - 公演情報(アーティスト・公演名・日付・会場)とコーデのタイトル
-- **コーデ画像**: タップで拡大、「画像を保存」リンク、スマホは長押しで写真に保存
+- **コーデ画像**: タップで拡大(ピンチで拡大縮小)、web は「画像を保存」でダウンロード(Android・iOS アプリの保存は未対応)
 - **使うアイテム**: カテゴリ・名前と、ユーザーが追加した写真のサムネイル。「足すならこれ」の提案
 - **選定理由**と着こなしのコツ
 - **カルチャー解説**(出典リンク付き)、**MV から読み取った世界観**(色のチップ)、**会場・季節のポイント**
@@ -71,7 +74,7 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
 
 ### F04 進捗表示・ローディングUI
 
-`POST /api/proposals` の応答を NDJSON で1行ずつ受け取り(`api.ts`)、処理の段階を表示する。
+`POST /api/proposals` の応答を NDJSON で1行ずつ受け取り(`api.dart`。web でも `package:http` が fetch のストリームで逐次受信する)、処理の段階を表示する。
 
 - **段階表示**: 公演情報 → ライブの雰囲気と手持ち服を解析(並列の4処理をそれぞれ表示)→ スタイルの方向性 → コーデ作成とセルフチェック → コーデ画像作成
 - **見出し**: 今の処理内容を文章で表示(例: 「カルチャー・MV・会場・手持ち服を同時に解析しています」)
@@ -80,24 +83,31 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
 - **見直しの表示**: セルフチェックが不合格で作り直すと「見直し n回」を表示
 - **待ち時間の豆知識**: 8秒ごとに切り替え
 - **完成演出**: 結果を受け取ったら「コーディネートができました!」を 0.9 秒表示してから結果画面へ
-- **スマホ対策**: 処理中は画面のスリープを防ぐ(Wake Lock。HTTPS のみ)。「この画面を開いたままお待ちください」を表示し、画面切替で通信が切れた場合は専用のエラーメッセージを出す
-- **動きを減らす設定**: OS の「視差効果を減らす」等が有効でも、ゆっくりした回転と明滅は残し、処理中だと分かるようにする
+- **スマホ対策**: 処理中は画面のスリープを防ぐ(`wakelock_plus`。web は HTTPS のみ)。「この画面を開いたままお待ちください」を表示し、画面切替で通信が切れた場合は専用のエラーメッセージを出す
 
 ### F05 公演情報入力受付
 
-入力項目(`EventSection.tsx`):
+公演ページや MV の URL は入力させず、**キーワード検索で公演を探して選ぶ**(著作権への配慮)。
 
-| 項目 | 必須 | 画面でのチェック | API でのチェック(`validate_event_input`) |
-| --- | --- | --- | --- |
-| 公演告知ページの URL | URL かアーティスト名のどちらか | `http(s)://` で始まるか | `http(s)://` で始まるか |
-| アーティスト名 | 同上 | — | URL とどちらも空ならエラー |
-| ジャンル | 任意 | — | — |
-| 公演日 | 任意 | 日付入力欄 | `YYYY-MM-DD` 形式か |
-| 会場 | 任意 | — | — |
-| 公式 MV の YouTube URL | 任意(推奨) | YouTube の動画 URL か(入力中に ✓ / ! を表示) | YouTube の動画 ID を含むか |
+1. 「検索キーワード」(アーティスト名・ツアー名など)を入れて「検索」→ `GET /api/events/search?q=...`
+2. バックエンドが Gemini の **Google 検索グラウンディング**で公演を調べ、候補(アーティスト・公演名・日付・会場・ジャンル)を最大5件返す。
+   参照したページは「参照した情報源」としてリンク表示する
+3. 候補を選ぶと手入力欄に反映される(修正可)。候補に公式MVがあれば「公式MVの雰囲気も参考にする」スイッチを表示(オフにすると MV 解析しない)
+4. 見つからない場合は、手入力欄(アーティスト名・公演名・ジャンル・会場・公演日)だけで送信できる
 
-- URL と手入力の両方がある場合、URL から読み取った内容を基本に、**手入力した項目で上書き**する(`steps.py` の P04)
-- URL から読み取れなかった場合は手入力の内容で続行し、注意事項に表示する。アーティスト名がどちらからも得られない場合のみエラーで入力画面に戻る
+**公式MV の扱い**: 検索結果の MV URL は LLM が誤った動画IDを返すことがあるため、YouTube oEmbed で **実在し、タイトルかチャンネル名にアーティスト名を含む** ことを確かめたものだけを返す(`gemini.py` の `_verify_mv`)。利用者が URL を入力・編集する手段はない。
+
+| 項目 | 必須 | API でのチェック(`validate_event_input`) |
+| --- | --- | --- |
+| 検索キーワード | キーワードかアーティスト名のどちらか | どちらも空ならエラー。URL は不可 |
+| アーティスト名 | 同上 | URL は不可 |
+| 公演名・ジャンル・会場 | 任意 | — |
+| 公演日 | 任意(日付選択) | `YYYY-MM-DD` 形式か |
+| 公式MV(検索結果のもの) | 任意 | YouTube の動画 ID を含むか |
+
+- 候補を選んで送信した場合は、その内容(+手入力)をそのまま使う
+- **キーワードだけで送信した場合**は、P04 でキーワード検索して1件目の公演を使い、注意事項に「〇〇の検索結果から…として提案しています」と表示する。手入力した項目があればそちらを優先する
+- 検索に失敗・該当なしの場合はキーワードをアーティスト名として続行し、注意事項に表示する。アーティスト名が得られない場合のみエラーで入力画面に戻る
 
 ### F06 クローゼット画像登録受付
 
@@ -117,22 +127,23 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
 
 1. `backend/app/schemas.py` の `EventInput`(または新しいモデル)に項目を追加
 2. `backend/app/main.py` の `create_proposal` に Form 項目とバリデーションを追加
-3. `frontend/src/types.ts` の `EventForm`(`schemas.py` と手で同期)と、F01 の入力フォームに選択項目を追加
+3. `frontend/lib/models.dart` の `EventForm`(`schemas.py` と手で同期)と、F01 の入力フォームに選択項目を追加
 4. `backend/app/prompts.py` のコーデ生成・評価のプロンプトに希望条件を反映
 
 ### F04・F05・F06 で使う API
 
 | メソッド・パス | 用途 |
 | --- | --- |
+| `GET /api/events/search?q=キーワード` | 公演の候補を検索(F05)。`{"candidates": [...], "sources": [{"title", "url"}]}`。空・URL は `422`、検索失敗は `503` |
 | `GET /api/config` | アップロード制限(`max_images`, `max_image_mb`, `allowed_types`)とモックモードかどうか |
 | `POST /api/proposals` | 公演情報と画像を受け取り、進捗と結果を NDJSON で返す |
 
 `POST /api/proposals` のリクエスト(`multipart/form-data`):
-`event_url`, `artist_name`, `genre`, `event_date`, `venue`, `mv_url`(いずれも任意の文字列)、`consent`(`true`)、`images`(画像ファイル、複数可)
+`keyword`, `artist_name`, `event_title`, `genre`, `event_date`, `venue`, `mv_url`(検索結果の公式MV。いずれも任意の文字列)、`consent`(`true`)、`images`(画像ファイル、複数可)
 
 レスポンス:
 
-- 入力エラー: `422` `{"errors": ["公演URLまたはアーティスト名のどちらかを入力してください。", ...]}`
+- 入力エラー: `422` `{"errors": ["検索キーワードまたはアーティスト名のどちらかを入力してください。", ...]}`
 - 正常: `200` `application/x-ndjson`。1行ずつ次の JSON が届く
 
 ```jsonc
@@ -153,10 +164,12 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
 ## 処理フロー(F08 以降・参考)
 
 ```
-[Web] F01/F05 公演情報(URL or 手入力 + MV URL) / F02/F06 服画像(複数)
+[Flutter] F05 キーワード検索(GET /api/events/search: Gemini + Google 検索)→ 候補を選ぶ or 手入力
+[Flutter] F01/F05 公演情報(+ 検索で確認済みの公式MV) / F02/F06 服画像(複数)
    ↓ POST /api/proposals(進捗を NDJSON でストリーミング → F04)
 [ADK SequentialAgent]
-  P04 公演情報解析 ............ Gemini URL Context(失敗時は手入力にフォールバック)
+  P04 公演情報解析 ............ 選んだ候補・手入力をそのまま使用。キーワードのみなら Google 検索で1件目を採用
+                                (失敗時はキーワードをアーティスト名としてフォールバック)
   [ParallelAgent]
     P05 カルチャー情報 ......... 事前収集データ(app/data/culture_genres.json)+ Gemini 要約
     P06 MV解析 ................. Gemini 動画理解(YouTube URL)→ 失敗時サムネイル解析
@@ -167,7 +180,7 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
     P10 コーデ候補生成(Generator)
     P11 Critic 評価 + P12 修正指示(MVP は1処理に統合、合格で escalate して抜ける)
   P13 コーデ画像生成 ........... Gemini 画像生成(Nano Banana 系)
-[Web] P14 / F03 結果表示(画像・選定理由・カルチャー解説+出典リンク・注意事項)
+[Flutter] P14 / F03 結果表示(画像・選定理由・カルチャー解説+出典リンク・注意事項)
 ```
 
 各ステップは失敗しても設計資料「異常時の処理」のフォールバックに切り替わり、全体は止まらない(F30)。
@@ -176,11 +189,13 @@ F28(`service.py` の `build_result` が作る `ProposalResult`)を受け取り�
 ## ディレクトリ
 
 ```
-frontend/              React 19 + Vite + TypeScript(F01〜F05 の画面)
-  src/App.tsx          画面全体・状態管理・送信(F01 / F04)
-  src/api.ts           API 呼び出しと NDJSON の受信(F04)
-  src/imageUtils.ts    写真の縮小・HEIC 変換(F02)
-  src/components/      EventSection(F05)/ ClosetUploader(F02)/ ProgressView(F04)/ ResultView(F03)
+frontend/              Flutter(web / Android / iOS)。F01〜F05 の画面
+  lib/main.dart        画面全体・状態管理・送信(F01 / F04)
+  lib/api.dart         API 呼び出し・キーワード検索・NDJSON の受信(F04 / F05)
+  lib/models.dart      backend/app/schemas.py と手で同期するデータ型
+  lib/widgets/         event_search_section(F05)/ closet_section(F02)
+  lib/screens/         progress_view(F04)/ result_view(F03)
+  test/                ウィジェットテスト
 backend/
   app/
     main.py            FastAPI(F05・F06 の入力受付・ストリーミング応答・静的配信)
@@ -206,11 +221,21 @@ USE_MOCK_GEMINI=true uvicorn app.main:app --reload --port 8080
 # ロード画面(F04)をじっくり確認したい場合は各処理を遅らせる
 USE_MOCK_GEMINI=true MOCK_DELAY_SEC=1.5 uvicorn app.main:app --port 8080
 
-# フロントエンド(別ターミナル)
+# フロントエンド(別ターミナル。Flutter 3.47 系)
 cd frontend
-npm install
-npm run dev   # http://localhost:5173(/api は 8080 にプロキシ)
+flutter pub get
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
+# Android エミュレータ: --dart-define=API_BASE_URL=http://10.0.2.2:8080
+# 実機: PC の LAN の IP を指定(例: http://192.168.0.10:8080)
+
+# 本番と同じく FastAPI から配信する場合
+flutter build web --release --no-web-resources-cdn
+cd ../backend && USE_MOCK_GEMINI=true STATIC_DIR=../frontend/build/web uvicorn app.main:app --port 8080
 ```
+
+- web の API 接続先は既定で同一オリジン、Android・iOS は `http://localhost:8080`。`API_BASE_URL` で変更する
+- バックエンドは開発用に `localhost` の任意ポートからの CORS を許可している(`CORS_ORIGIN_REGEX` で変更可)
+- モックでの検索は、キーワードに `fail` を含むと検索失敗、`nohit` を含むと該当なしを返す
 
 実際の Gemini を使う場合は、Vertex AI の環境変数(下記)か `GOOGLE_API_KEY` を設定する。設定値は `.env.example` を参照。
 
@@ -218,7 +243,7 @@ npm run dev   # http://localhost:5173(/api は 8080 にプロキシ)
 
 ```bash
 cd backend && pytest                            # モックで全フロー
-cd frontend && npm run build && npm run lint    # 型チェック・lint
+cd frontend && flutter analyze && flutter test  # 静的解析・ウィジェットテスト
 ```
 
 ## Cloud Run へのデプロイ
@@ -239,6 +264,10 @@ gcloud run deploy live-outfit-agent \
   ただし AI Studio は前払い制で、新規ユーザーは `gemini-2.5-flash` を利用できない(`GEMINI_*_MODEL` で新しいモデルに変更が必要)。
 
 ## 未対応・要確認
+
+- **Google 検索グラウンディングの表示要件**: Gemini の Google 検索グラウンディングは、利用規約上「検索候補(Search Suggestions)」の表示が求められる。
+  現状は参照ページ(出典)のリンクのみ表示しているため、公開前に `grounding_metadata.search_entry_point` の表示方法を確認・対応する。
+- **Flutter 版で未対応**: 写真のドラッグ&ドロップ・貼り付け、Android・iOS アプリでのコーデ画像の保存。
 
 - **F07 / P03 希望条件入力**(同行者・天候考慮など)は未実装。
 - **F06 の永続保存**: 画像は保存しない(上記)。保存が必要になった場合は Cloud Storage と削除ポリシーの設計が必要。

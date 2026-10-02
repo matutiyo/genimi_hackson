@@ -107,10 +107,16 @@ class StepAgent(BaseAgent):
 # P04 公演情報解析
 # ---------------------------------------------------------------------------
 class EventParseAgent(StepAgent):
+    """画面で検索結果を選んだ場合はその内容(+手入力)をそのまま使う。
+
+    キーワードだけで送信された場合は、ここでキーワード検索して最上位の候補を使う。
+    """
+
     async def run_step(self, state, notes):
         inp = EventInput.model_validate(state["input"])
         manual = EventInfo(
             artist_name=inp.artist_name or "",
+            event_title=inp.event_title,
             event_date=inp.event_date,
             venue=inp.venue,
             genre_hint=inp.genre,
@@ -118,26 +124,29 @@ class EventParseAgent(StepAgent):
             source="manual",
         )
         event = manual
-        if inp.event_url:
+        if inp.keyword and not inp.artist_name:
             try:
-                parsed = await self.call(self.deps.gateway.parse_event_url(inp.event_url))
-                # URL 抽出結果を基本とし、手動入力があればそちらを優先して上書きする
-                merged = parsed.model_dump()
-                for key in ("artist_name", "event_date", "venue", "genre_hint", "mv_url"):
-                    manual_value = getattr(manual, key)
-                    if manual_value:
-                        merged[key] = manual_value
-                merged["source"] = "url+manual" if any(
-                    getattr(manual, k) for k in ("artist_name", "event_date", "venue")
-                ) else "url"
-                event = EventInfo.model_validate(merged)
+                found = await self.call(self.deps.gateway.search_events(inp.keyword, limit=1))
+                if not found.candidates:
+                    raise ValueError("該当する公演が見つかりませんでした")
+                # 検索結果を基本とし、手入力があればそちらを優先して上書きする
+                merged = found.candidates[0].model_dump(exclude={"mv_title"})
+                for key in ("event_title", "event_date", "venue", "genre_hint", "mv_url"):
+                    if getattr(manual, key):
+                        merged[key] = getattr(manual, key)
+                given = any(getattr(manual, k) for k in ("event_title", "event_date", "venue", "genre_hint"))
+                event = EventInfo(**merged, source="search+manual" if given else "search")
+                notes.append(
+                    f"「{inp.keyword}」の検索結果から「{event.artist_name}"
+                    f"{' ' + event.event_title if event.event_title else ''}」の公演として提案しています。"
+                    "違う場合はアーティスト名を入力して再度お試しください。"
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("公演URL解析に失敗: %s", exc)
-                notes.append("公演URLから情報を読み取れなかったため、手動入力の内容で提案しています。")
+                logger.warning("公演キーワード検索に失敗: %s", exc)
+                event = manual.model_copy(update={"artist_name": inp.keyword})
+                notes.append(f"公演を検索できなかったため、「{inp.keyword}」をアーティスト名として提案しています。")
         if not event.artist_name:
-            raise FatalPipelineError(
-                "公演URLからアーティスト名を読み取れませんでした。アーティスト名を手動で入力してください。"
-            )
+            raise FatalPipelineError("アーティスト名が分かりませんでした。キーワードかアーティスト名を入力してください。")
         return {"event": event.model_dump()}, False
 
 
@@ -203,7 +212,7 @@ class MvAnalysisAgent(StepAgent):
     async def run_step(self, state, notes):
         event = EventInfo.model_validate(state["event"])
         if not event.mv_url:
-            notes.append("公式MVのURLが未入力のため、MV解析は行っていません。")
+            notes.append("公式MVが見つからなかった(または使わない設定にした)ため、MV解析は行っていません。")
             return {"mv_style": MvStyle(analyzed_from="none").model_dump()}, False
         try:
             mv = await self.call(self.deps.gateway.analyze_mv_video(event.artist_name, event.mv_url))

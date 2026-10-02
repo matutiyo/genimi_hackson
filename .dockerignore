@@ -5,3 +5,5 @@
 **/.venv
 .git
 .env
+**/build
+**/.dart_tool

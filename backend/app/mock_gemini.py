@@ -7,9 +7,10 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import re
+import struct
+import zlib
 
 from .config import Settings
 from .gemini import GeminiGateway
@@ -20,10 +21,12 @@ from .schemas import (
     CriticLlmOutput,
     CriticScores,
     CultureSummary,
-    EventInfo,
+    EventCandidate,
+    EventSearchResult,
     GenreMatch,
     MvStyle,
     OutfitCandidate,
+    SearchSource,
     StyleProfile,
     VenueInfo,
 )
@@ -57,12 +60,22 @@ class MockGeminiGateway(GeminiGateway):
         if self.settings.mock_delay_sec > 0:
             await asyncio.sleep(self.settings.mock_delay_sec * factor)
 
-    async def parse_event_url(self, url: str) -> EventInfo:
+    async def search_events(self, keyword: str, limit: int = 5) -> EventSearchResult:
         await self._delay()
-        if "fail" in url:
-            raise ValueError("モック: URL解析失敗")
-        return EventInfo(artist_name="モックバンド", event_title="MOCK TOUR 2026",
-                         event_date="2026-12-05", venue="Zepp Haneda", genre_hint="パンク", source="url")
+        if "fail" in keyword:
+            raise ValueError("モック: 検索失敗")
+        if "nohit" in keyword:
+            return EventSearchResult()
+        return EventSearchResult(
+            candidates=[
+                EventCandidate(artist_name="モックバンド", event_title="MOCK TOUR 2026", event_date="2026-12-05",
+                               venue="Zepp Haneda", genre_hint="パンク",
+                               mv_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ", mv_title="モックバンド - Official MV"),
+                EventCandidate(artist_name="モックバンド", event_title="MOCK FES 2027", event_date="2027-03-21",
+                               venue="幕張メッセ", genre_hint="パンク"),
+            ][:limit],
+            sources=[SearchSource(title="モックバンド公式サイト", url="https://example.com/mock-band")],
+        )
 
     async def match_genre(self, artist: str, genre: str | None, candidates: list[dict]) -> GenreMatch:
         await self._delay()
@@ -157,16 +170,26 @@ class MockGeminiGateway(GeminiGateway):
     async def generate_outfit_image(self, prompt: str, reference_images: list[ClosetImage]) -> tuple[bytes, str] | None:
         await self._delay(2)
         names = re.findall(r"^- (.+)$", prompt.split("使用アイテム:")[1].split("雰囲気:")[0], re.M)
-        rows = "".join(
-            f'<rect x="40" y="{70 + i * 56}" width="320" height="44" rx="8" fill="#{"222222" if i % 2 == 0 else "8b1a1a"}"/>'
-            f'<text x="200" y="{98 + i * 56}" font-size="16" fill="#fff" text-anchor="middle">{html.escape(n)}</text>'
-            for i, n in enumerate(names)
-        )
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="480" viewBox="0 0 400 480">'
-            '<rect width="400" height="480" fill="#f3efe9"/>'
-            '<text x="200" y="42" font-size="18" text-anchor="middle" fill="#333">MOCK コーデ画像</text>'
-            f"{rows}</svg>"
-        )
-        return svg.encode("utf-8"), "image/svg+xml"
+        # Flutter は SVG を標準で表示できないため PNG を返す(アイテム数ぶんの帯を描くだけの簡易画像)
+        return _stripes_png(400, 480, len(names)), "image/png"
 
+
+def _stripes_png(width: int, height: int, rows: int) -> bytes:
+    """標準ライブラリだけで、背景にアイテム数ぶんの帯を描いた PNG を作る。"""
+    bg, colors = (0xF3, 0xEF, 0xE9), [(0x22, 0x22, 0x22), (0x8B, 0x1A, 0x1A)]
+
+    def color_at(y: int) -> tuple[int, int, int]:
+        i, offset = divmod(y - 70, 56)
+        return colors[i % 2] if 0 <= i < rows and offset < 44 else bg
+
+    rows_bytes = []
+    for y in range(height):
+        bar = color_at(y)
+        rows_bytes.append(b"\x00" + bytes(bg) * 40 + bytes(bar) * (width - 80) + bytes(bg) * 40)
+    raw = b"".join(rows_bytes)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
