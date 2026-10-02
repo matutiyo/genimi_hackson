@@ -24,7 +24,7 @@ from pydantic import ConfigDict
 
 from .. import prompts
 from ..config import Settings
-from ..gemini import GeminiGateway
+from ..gemini import GeminiGateway, search_conditions
 from ..schemas import (
     ClosetImage,
     ClosetItem,
@@ -126,7 +126,8 @@ class EventParseAgent(StepAgent):
         event = manual
         if inp.keyword and not inp.artist_name:
             try:
-                found = await self.call(self.deps.gateway.search_events(inp.keyword, limit=1))
+                conditions = search_conditions(None, inp.event_title, inp.genre, inp.venue, inp.event_date)
+                found = await self.call(self.deps.gateway.search_events(inp.keyword, limit=1, conditions=conditions))
                 if not found.candidates:
                     raise ValueError("該当する公演が見つかりませんでした")
                 # 検索結果を基本とし、手入力があればそちらを優先して上書きする

@@ -11,14 +11,19 @@ import 'package:live_outfit/screens/progress_view.dart';
 /// API を呼ばずに固定の応答を返す
 class FakeApi extends Api {
   final searched = <String>[];
+  final searchedConditions = <Map<String, String>>[];
   EventForm? submitted;
 
   @override
   Future<ClientConfig> fetchConfig() async => const ClientConfig.fallback();
 
   @override
-  Future<EventSearchResult> searchEvents(String keyword) async {
+  Future<EventSearchResult> searchEvents(String keyword, {Map<String, String> conditions = const {}}) async {
     searched.add(keyword);
+    searchedConditions.add({
+      for (final e in conditions.entries)
+        if (e.value.isNotEmpty) e.key: e.value,
+    });
     return EventSearchResult.fromJson({
       'candidates': [
         {
@@ -55,23 +60,56 @@ Future<FakeApi> _pumpApp(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('キーワード検索で候補を選ぶと公演情報が入る', (tester) async {
+  testWidgets('キーワード検索で候補を選ぶと詳細検索に公演情報が入る', (tester) async {
     final api = await _pumpApp(tester);
 
-    // URL の入力欄は無い
+    // URL の入力欄は無く、詳細検索は閉じている
     expect(find.textContaining('URL'), findsNothing);
+    expect(find.widgetWithText(TextField, '会場'), findsNothing);
 
     await tester.enterText(find.widgetWithText(TextField, '検索キーワード'), 'モックバンド');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, '検索'));
     await tester.pumpAndSettle();
     expect(api.searched, ['モックバンド']);
+    expect(api.searchedConditions, [<String, String>{}]);
     expect(find.textContaining('見つかった公演(1件)'), findsOneWidget);
 
     await tester.tap(find.text('モックバンド / MOCK TOUR 2026'));
     await tester.pumpAndSettle();
     expect(find.text('公式MVの雰囲気も参考にする'), findsOneWidget);
+    // 詳細検索は閉じたまま、入力件数だけ表示する
+    expect(find.text('詳細検索(任意)・5件入力中'), findsOneWidget);
+
+    await tester.tap(find.text('詳細検索(任意)・5件入力中'));
+    await tester.pumpAndSettle();
     expect(find.widgetWithText(TextField, 'Zepp Haneda'), findsOneWidget);
     expect(find.widgetWithText(TextField, '2026-12-05'), findsOneWidget);
+
+    // 別のキーワードで検索し直すと、候補から入っただけの値は条件に使わない
+    await tester.enterText(find.widgetWithText(TextField, '検索キーワード'), '別のバンド');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '検索'));
+    await tester.pumpAndSettle();
+    expect(api.searchedConditions.last, <String, String>{});
+  });
+
+  testWidgets('詳細検索の条件で絞り込める', (tester) async {
+    final api = await _pumpApp(tester);
+
+    await tester.tap(find.text('詳細検索(任意)'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '会場'), '幕張メッセ');
+    await tester.enterText(find.widgetWithText(TextField, '検索キーワード'), 'モックバンド');
+    await tester.pumpAndSettle();
+    expect(find.text('詳細検索(任意)・1件入力中'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, '検索'));
+    await tester.pumpAndSettle();
+    expect(api.searchedConditions.last, {'venue': '幕張メッセ'});
+    // 検索後は詳細検索を閉じ、条件は残す
+    expect(find.widgetWithText(TextField, '会場'), findsNothing);
+    expect(find.text('詳細検索(任意)・1件入力中'), findsOneWidget);
   });
 
   testWidgets('未入力で送信すると不足項目を表示する', (tester) async {

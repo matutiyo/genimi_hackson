@@ -56,10 +56,13 @@ async def test_search_events_parses_grounded_response(oembed):
 
     async def generate_content(**kwargs):
         assert kwargs["config"].tools[0].google_search is not None
+        assert "会場: Zepp Haneda" in kwargs["contents"][0]
         return response
 
     client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)))
-    result = await gemini.GeminiGateway(Settings(), client=client).search_events("Test Band")
+    result = await gemini.GeminiGateway(Settings(), client=client).search_events(
+        "Test Band", conditions=gemini.search_conditions(venue="Zepp Haneda")
+    )
 
     assert [c.event_title for c in result.candidates] == ["TOUR", None]
     assert result.candidates[0].mv_url == "https://www.youtube.com/watch?v=abcdefghijk"

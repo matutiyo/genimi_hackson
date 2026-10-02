@@ -51,6 +51,28 @@ _MOCK_ITEMS: list[ClosetItemRaw] = [
 ]
 
 
+_MOCK_EVENTS = [
+    EventCandidate(artist_name="モックバンド", event_title="MOCK TOUR 2026", event_date="2026-12-05",
+                   venue="Zepp Haneda", genre_hint="パンク",
+                   mv_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ", mv_title="モックバンド - Official MV"),
+    EventCandidate(artist_name="モックバンド", event_title="MOCK FES 2027", event_date="2027-03-21",
+                   venue="幕張メッセ", genre_hint="パンク"),
+]
+
+# 詳細検索の項目名 → EventCandidate の属性
+_CONDITION_FIELDS = {"アーティスト名": "artist_name", "公演名": "event_title", "ジャンル": "genre_hint",
+                     "会場": "venue", "公演日": "event_date"}
+
+
+def _matches(candidate: EventCandidate, conditions: dict[str, str]) -> bool:
+    """モックの詳細検索: 指定された条件の値を候補の該当項目が含むか(大文字小文字は区別しない)。"""
+    for label, value in conditions.items():
+        actual = getattr(candidate, _CONDITION_FIELDS[label]) or ""
+        if value and value.lower() not in actual.lower():
+            return False
+    return True
+
+
 class MockGeminiGateway(GeminiGateway):
     def __init__(self, settings: Settings) -> None:  # noqa: D107 - client は作らない
         self.settings = settings
@@ -60,21 +82,18 @@ class MockGeminiGateway(GeminiGateway):
         if self.settings.mock_delay_sec > 0:
             await asyncio.sleep(self.settings.mock_delay_sec * factor)
 
-    async def search_events(self, keyword: str, limit: int = 5) -> EventSearchResult:
+    async def search_events(
+        self, keyword: str, limit: int = 5, conditions: dict[str, str] | None = None
+    ) -> EventSearchResult:
         await self._delay()
         if "fail" in keyword:
             raise ValueError("モック: 検索失敗")
         if "nohit" in keyword:
             return EventSearchResult()
+        candidates = [c for c in _MOCK_EVENTS if _matches(c, conditions or {})]
         return EventSearchResult(
-            candidates=[
-                EventCandidate(artist_name="モックバンド", event_title="MOCK TOUR 2026", event_date="2026-12-05",
-                               venue="Zepp Haneda", genre_hint="パンク",
-                               mv_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ", mv_title="モックバンド - Official MV"),
-                EventCandidate(artist_name="モックバンド", event_title="MOCK FES 2027", event_date="2027-03-21",
-                               venue="幕張メッセ", genre_hint="パンク"),
-            ][:limit],
-            sources=[SearchSource(title="モックバンド公式サイト", url="https://example.com/mock-band")],
+            candidates=candidates[:limit],
+            sources=[SearchSource(title="モックバンド公式サイト", url="https://example.com/mock-band")] if candidates else [],
         )
 
     async def match_genre(self, artist: str, genre: str | None, candidates: list[dict]) -> GenreMatch:

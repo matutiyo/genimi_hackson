@@ -32,7 +32,7 @@ Google 検索で、このキーワードに該当する公演(今日 {today} 以
 
 - 公演が見つからない場合でも、アーティストが特定できれば event_title などを null にして1件返すこと。
 - 該当するアーティストが特定できない場合は "candidates": [] を返すこと。
-"""
+{conditions}"""
 
 GENRE_MATCH_PROMPT = """\
 アーティスト「{artist}」(ユーザー入力ジャンル: {genre})のライブに参加します。

@@ -230,6 +230,18 @@ class EventForm {
 
   bool get hasEvent => keyword.trim().isNotEmpty || artistName.trim().isNotEmpty;
 
+  /// 詳細検索の条件(GET /api/events/search のクエリ)
+  Map<String, String> get searchConditions => {
+    'artist_name': artistName,
+    'event_title': eventTitle,
+    'genre': genre,
+    'venue': venue,
+    'event_date': eventDate,
+  };
+
+  /// 詳細検索に入力済みの項目数
+  int get detailCount => searchConditions.values.where((v) => v.trim().isNotEmpty).length;
+
   Map<String, String> toFields() => {
     'keyword': keyword,
     'artist_name': artistName,

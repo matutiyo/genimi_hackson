@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import ALLOWED_IMAGE_TYPES, get_settings
-from .gemini import build_gateway, youtube_video_id
+from .gemini import build_gateway, search_conditions, youtube_video_id
 from .schemas import ClosetImage, EventInput
 from .service import run_proposal
 
@@ -83,17 +83,29 @@ async def client_config() -> dict:
 
 
 @app.get("/api/events/search")
-async def search_events(q: Annotated[str, Query(max_length=100)] = "") -> JSONResponse:
-    """F05: キーワード(アーティスト名・公演名など)から公演の候補を探す。"""
-    keyword = q.strip()
+async def search_events(
+    q: Annotated[str, Query(max_length=100)] = "",
+    artist_name: Annotated[str, Query(max_length=100)] = "",
+    event_title: Annotated[str, Query(max_length=100)] = "",
+    genre: Annotated[str, Query(max_length=50)] = "",
+    venue: Annotated[str, Query(max_length=100)] = "",
+    event_date: Annotated[str, Query(max_length=10)] = "",
+) -> JSONResponse:
+    """F05: キーワード(アーティスト名・公演名など)と詳細条件から公演の候補を探す。"""
+    conditions = search_conditions(artist_name, event_title, genre, venue, event_date)
+    keyword = q.strip() or conditions.get("アーティスト名") or conditions.get("公演名", "")
     if not keyword:
-        return JSONResponse(status_code=422, content={"errors": ["検索キーワードを入力してください。"]})
-    if _URL.match(keyword):
+        return JSONResponse(
+            status_code=422, content={"errors": ["検索キーワード(またはアーティスト名・公演名)を入力してください。"]}
+        )
+    if any(_URL.match(v) for v in (keyword, *conditions.values())):
         return JSONResponse(
             status_code=422, content={"errors": ["URLでは検索できません。アーティスト名や公演名を入力してください。"]}
         )
     try:
-        result = await asyncio.wait_for(gateway.search_events(keyword), timeout=settings.step_timeout_sec)
+        result = await asyncio.wait_for(
+            gateway.search_events(keyword, conditions=conditions), timeout=settings.step_timeout_sec
+        )
     except Exception:  # noqa: BLE001 - 検索できなくても手入力で続けられる
         logger.exception("公演検索に失敗")
         return JSONResponse(

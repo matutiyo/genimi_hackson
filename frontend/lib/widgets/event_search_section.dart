@@ -33,8 +33,11 @@ class _EventSearchSectionState extends State<EventSearchSection> {
   EventSearchResult? _result;
   EventCandidate? _selected;
 
-  /// 手入力欄を開いているか(候補を選ぶか、手入力の内容があれば開いた状態で始める)
-  late bool _showDetails = widget.form.artistName.isNotEmpty;
+  /// 詳細検索を開いているか(最初は閉じておく)
+  bool _showDetails = false;
+
+  /// 詳細検索の値が選んだ候補から入ったままか(利用者が手で直したら false)
+  bool _filledFromCandidate = false;
 
   EventForm get form => widget.form;
 
@@ -57,22 +60,39 @@ class _EventSearchSectionState extends State<EventSearchSection> {
     widget.onChanged();
   }
 
+  /// キーワードが空でも、詳細検索のアーティスト名・公演名があれば検索できる
+  bool get _canSearch =>
+      _keyword.text.trim().isNotEmpty || _artist.text.trim().isNotEmpty || _title.text.trim().isNotEmpty;
+
   Future<void> _search() async {
+    if (!_canSearch || _searching) return;
     final keyword = _keyword.text.trim();
-    if (keyword.isEmpty || _searching) return;
+    if (_selected != null) {
+      // 検索し直すときは選択を外す。候補から入っただけの値は絞り込み条件に残さない
+      if (_filledFromCandidate) _clearDetails();
+      _selected = null;
+      form
+        ..mvUrl = null
+        ..mvTitle = null;
+      _sync();
+    }
+    final narrowed = form.detailCount > 0;
     FocusScope.of(context).unfocus();
     setState(() {
+      _showDetails = false; // 結果が検索欄のすぐ下に見えるよう閉じる(条件は残る)
       _searching = true;
       _searchError = null;
       _result = null;
     });
     try {
-      final result = await widget.api.searchEvents(keyword);
+      final result = await widget.api.searchEvents(keyword, conditions: form.searchConditions);
       if (!mounted) return;
       setState(() {
         _result = result;
         if (result.candidates.isEmpty) {
-          _searchError = '「$keyword」に該当する公演が見つかりませんでした。キーワードを変えるか、下の欄に手入力してください。';
+          _searchError = narrowed
+              ? '条件に合う公演が見つかりませんでした。詳細検索の条件を減らすか、キーワードを変えてください。'
+              : '該当する公演が見つかりませんでした。キーワードを変えるか、詳細検索に公演の情報を入力してください。';
         }
       });
     } on ValidationException catch (e) {
@@ -87,7 +107,7 @@ class _EventSearchSectionState extends State<EventSearchSection> {
   void _select(EventCandidate c) {
     setState(() {
       _selected = c;
-      _showDetails = true;
+      _filledFromCandidate = true;
       _artist.text = c.artistName;
       _title.text = c.eventTitle ?? '';
       _genre.text = c.genreHint ?? '';
@@ -101,12 +121,22 @@ class _EventSearchSectionState extends State<EventSearchSection> {
     _sync();
   }
 
+  void _clearDetails() {
+    for (final c in [_artist, _title, _genre, _venue, _date]) {
+      c.clear();
+    }
+  }
+
+  /// 詳細検索を手で変えた
+  void _editDetails() {
+    _filledFromCandidate = false;
+    _sync();
+  }
+
   void _clearSelection() {
     setState(() {
       _selected = null;
-      for (final c in [_artist, _title, _genre, _venue, _date]) {
-        c.clear();
-      }
+      _clearDetails();
       form
         ..mvUrl = null
         ..mvTitle = null;
@@ -125,7 +155,7 @@ class _EventSearchSectionState extends State<EventSearchSection> {
     );
     if (picked == null) return;
     _date.text = picked.toIso8601String().substring(0, 10);
-    _sync();
+    _editDetails();
   }
 
   @override
@@ -135,7 +165,7 @@ class _EventSearchSectionState extends State<EventSearchSection> {
       step: 1,
       title: '行くライブを検索',
       children: [
-        const Hint('アーティスト名やツアー名など、キーワードで公演を探します。見つからない場合は手入力でも大丈夫です。'),
+        const Hint('アーティスト名やツアー名など、キーワードで公演を探します。日付や会場で絞り込みたいときは「詳細検索」を開いてください。'),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -155,12 +185,23 @@ class _EventSearchSectionState extends State<EventSearchSection> {
             ),
             const SizedBox(width: 8),
             FilledButton(
-              onPressed: _searching ? null : _search,
+              onPressed: _searching || !_canSearch ? null : _search,
               child: _searching
                   ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('検索'),
             ),
           ],
+        ),
+        _DetailToggle(
+          open: _showDetails,
+          count: form.detailCount,
+          onTap: () => setState(() => _showDetails = !_showDetails),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: _showDetails ? _detailPanel() : const SizedBox(width: double.infinity),
         ),
         if (_searching) ...[const SizedBox(height: 12), const Hint('公演情報を検索しています(10秒ほどかかることがあります)')],
         if (_searchError != null) ...[
@@ -192,26 +233,29 @@ class _EventSearchSectionState extends State<EventSearchSection> {
             ),
         ],
         if (result != null && result.sources.isNotEmpty) _Sources(result.sources),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => setState(() => _showDetails = !_showDetails),
-            icon: Icon(_showDetails ? Icons.expand_less : Icons.expand_more),
-            label: Text(_selected != null ? '内容を確認・修正する' : '公演情報を手入力する'),
-          ),
-        ),
-        if (_showDetails) ...[
-          const Hint('手入力した内容は検索結果より優先します。キーワードだけで送信した場合は、AIが検索結果の1件目を使います。'),
+      ],
+    );
+  }
+
+  /// 詳細検索(任意項目)。検索の絞り込みに使い、送信時は検索結果より優先する
+  Widget _detailPanel() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 2),
+      decoration: BoxDecoration(color: AppColors.soft, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Hint('入力した条件で検索結果を絞り込みます。候補を選ぶと自動で入り、ここで修正できます。検索しなくても、ここに入れた内容で提案できます。'),
           const SizedBox(height: 12),
           _field(_artist, 'アーティスト名'),
-          _field(_title, '公演名', optional: true),
-          _field(_genre, 'ジャンル', optional: true, hint: '例: パンク、ヒップホップ、V系'),
-          _field(_venue, '会場', optional: true, hint: '例: Zepp Haneda'),
+          _field(_title, '公演名'),
+          _field(_genre, 'ジャンル', hint: '例: パンク、ヒップホップ、V系'),
+          _field(_venue, '会場', hint: '例: Zepp Haneda'),
           _field(
             _date,
             '公演日',
-            optional: true,
             readOnly: true,
             onTap: _pickDate,
             suffix: _date.text.isEmpty
@@ -221,19 +265,29 @@ class _EventSearchSectionState extends State<EventSearchSection> {
                     icon: const Icon(Icons.clear, size: 18),
                     onPressed: () {
                       _date.clear();
-                      _sync();
+                      _editDetails();
                     },
                   ),
           ),
+          if (form.detailCount > 0)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () {
+                  _clearDetails();
+                  _editDetails();
+                },
+                child: const Text('条件をクリア'),
+              ),
+            ),
         ],
-      ],
+      ),
     );
   }
 
   Widget _field(
     TextEditingController controller,
     String label, {
-    bool optional = false,
     String? hint,
     bool readOnly = false,
     VoidCallback? onTap,
@@ -246,8 +300,36 @@ class _EventSearchSectionState extends State<EventSearchSection> {
         readOnly: readOnly,
         onTap: onTap,
         style: const TextStyle(fontSize: 16),
-        decoration: InputDecoration(labelText: optional ? '$label(任意)' : label, hintText: hint, suffixIcon: suffix),
-        onChanged: (_) => _sync(),
+        decoration: InputDecoration(labelText: label, hintText: hint, suffixIcon: suffix),
+        onChanged: (_) => _editDetails(),
+      ),
+    );
+  }
+}
+
+/// 「詳細検索」の開閉ボタン。閉じていても入力済みの件数を表示する
+class _DetailToggle extends StatelessWidget {
+  const _DetailToggle({required this.open, required this.count, required this.onTap});
+
+  final bool open;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: TextButton.icon(
+          onPressed: onTap,
+          icon: AnimatedRotation(
+            turns: open ? 0.5 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: const Icon(Icons.expand_more),
+          ),
+          label: Text('詳細検索(任意)${count > 0 ? '・$count件入力中' : ''}'),
+        ),
       ),
     );
   }

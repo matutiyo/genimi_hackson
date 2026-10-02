@@ -42,11 +42,17 @@ class Api {
     return ClientConfig.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
-  /// キーワード(アーティスト名・公演名など)から公演の候補を探す
-  Future<EventSearchResult> searchEvents(String keyword) async {
+  /// キーワード(アーティスト名・公演名など)と詳細検索の条件から公演の候補を探す。
+  /// [conditions] のキーは API のクエリ名(artist_name / event_title / genre / venue / event_date)
+  Future<EventSearchResult> searchEvents(String keyword, {Map<String, String> conditions = const {}}) async {
+    final query = {
+      'q': keyword,
+      for (final MapEntry(:key, :value) in conditions.entries)
+        if (value.trim().isNotEmpty) key: value.trim(),
+    };
     final http.Response res;
     try {
-      res = await http.get(_uri('/api/events/search', {'q': keyword}));
+      res = await http.get(_uri('/api/events/search', query));
     } catch (_) {
       throw ApiException('サーバーと通信できませんでした。ネットワーク接続を確認してください。');
     }

@@ -55,6 +55,16 @@ def test_event_search():
     assert client.get("/api/events/search", params={"q": "nohit"}).json()["candidates"] == []
 
 
+def test_event_search_with_conditions():
+    r = client.get("/api/events/search", params={"q": "モックバンド", "venue": "幕張"})
+    assert [c["event_title"] for c in r.json()["candidates"]] == ["MOCK FES 2027"]
+    # キーワードが空でもアーティスト名があれば検索できる
+    r = client.get("/api/events/search", params={"artist_name": "モックバンド", "event_date": "2026-12"})
+    assert [c["event_title"] for c in r.json()["candidates"]] == ["MOCK TOUR 2026"]
+    assert client.get("/api/events/search", params={"q": "モックバンド", "venue": "武道館"}).json()["candidates"] == []
+    assert client.get("/api/events/search", params={"q": "x", "venue": "https://example.com"}).status_code == 422
+
+
 def test_keyword_only_stream():
     with client.stream("POST", "/api/proposals", data={"keyword": "モックバンド", "consent": "true"}, files=files()) as r:
         lines = [json.loads(l) for l in r.iter_lines() if l]

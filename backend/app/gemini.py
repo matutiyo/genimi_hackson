@@ -65,6 +65,25 @@ def _valid_date(value: str | None) -> str | None:
         return None
 
 
+def search_conditions(
+    artist_name: str | None = None,
+    event_title: str | None = None,
+    genre: str | None = None,
+    venue: str | None = None,
+    event_date: str | None = None,
+) -> dict[str, str]:
+    """詳細検索の条件(入力のあったものだけ)。キーは Gemini に渡す項目名。"""
+    labeled = {"アーティスト名": artist_name, "公演名": event_title, "ジャンル": genre, "会場": venue, "公演日": event_date}
+    return {label: value.strip() for label, value in labeled.items() if value and value.strip()}
+
+
+def _conditions_text(conditions: dict[str, str] | None) -> str:
+    lines = [f"  - {label}: {value}" for label, value in (conditions or {}).items() if value]
+    if not lines:
+        return ""
+    return "- 次の詳細条件にすべて合う公演だけを候補にすること(合うものが無ければ \"candidates\": [])。\n" + "\n".join(lines) + "\n"
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"[\s・._\-]", "", text).lower()
 
@@ -119,10 +138,19 @@ class GeminiGateway:
         return schema.model_validate_json(response.text or "")
 
     # ---- P04 公演キーワード検索(Google 検索グラウンディング) -------------
-    async def search_events(self, keyword: str, limit: int = 5) -> EventSearchResult:
+    async def search_events(
+        self, keyword: str, limit: int = 5, conditions: dict[str, str] | None = None
+    ) -> EventSearchResult:
+        """conditions: 詳細検索の条件(項目名 → 値)。候補はこの条件に合うものに絞り込む。"""
+        prompt = prompts.EVENT_SEARCH_PROMPT.format(
+            keyword=keyword,
+            today=date.today().isoformat(),
+            limit=limit,
+            conditions=_conditions_text(conditions),
+        )
         response = await self.client.aio.models.generate_content(
             model=self.settings.text_model,
-            contents=[prompts.EVENT_SEARCH_PROMPT.format(keyword=keyword, today=date.today().isoformat(), limit=limit)],
+            contents=[prompt],
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
                 temperature=0.0,

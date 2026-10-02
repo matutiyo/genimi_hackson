@@ -68,11 +68,12 @@ async def test_keyword_only_uses_top_search_result():
 
 
 @pytest.mark.asyncio
-async def test_keyword_with_manual_fields_overrides_search_result():
-    msgs = await collect(EventInput(keyword="モックバンド", venue="日本武道館"), images("a.png", "b.png", "c.png"))
+async def test_keyword_with_detail_conditions_narrows_search():
+    msgs = await collect(EventInput(keyword="モックバンド", venue="幕張メッセ"), images("a.png", "b.png", "c.png"))
     event = msgs[-1]["result"]["event"]
     assert event["source"] == "search+manual"
-    assert event["venue"] == "日本武道館"
+    assert event["event_title"] == "MOCK FES 2027"
+    assert event["venue"] == "幕張メッセ"
 
 
 @pytest.mark.asyncio
