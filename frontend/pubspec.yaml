@@ -1,0 +1,27 @@
+name: live_outfit
+description: "はじめてのライブ服(初ジャンルのライブ用 服装エージェント)の画面"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  http: ^1.6.0
+  http_parser: ^4.1.2
+  image_picker: ^1.2.3
+  url_launcher: ^6.3.2
+  wakelock_plus: ^1.8.1
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

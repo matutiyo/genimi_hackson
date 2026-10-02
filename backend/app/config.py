@@ -43,6 +43,11 @@ class Settings:
         default_factory=lambda: int(os.getenv("MAX_REFERENCE_IMAGES", "6"))
     )
 
+    # CORS を許可するオリジン(正規表現)。既定は localhost の任意ポート(Flutter の開発サーバー用)
+    cors_origin_regex: str = field(
+        default_factory=lambda: os.getenv("CORS_ORIGIN_REGEX", r"https?://(localhost|127\.0\.0\.1)(:\d+)?")
+    )
+
     # フロントエンドのビルド成果物(存在すれば FastAPI から配信)
     static_dir: str = field(default_factory=lambda: os.getenv("STATIC_DIR", "static"))
 

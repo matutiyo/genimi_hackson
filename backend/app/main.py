@@ -1,12 +1,14 @@
 """FastAPI エントリポイント。
 
 - POST /api/proposals : 公演情報 + 服画像を受け取り、進捗と結果を NDJSON でストリーミング返却
+- GET  /api/events/search : キーワードから公演の候補を検索(URL の直接入力は受け付けない)
 - GET  /api/config    : フロントエンド用のアップロード制限値
 - フロントエンドのビルド成果物(STATIC_DIR)があれば / で配信
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -14,20 +16,30 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import ALLOWED_IMAGE_TYPES, get_settings
-from .gemini import build_gateway, youtube_video_id
+from .gemini import build_gateway, search_conditions, youtube_video_id
 from .schemas import ClosetImage, EventInput
 from .service import run_proposal
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 gateway = build_gateway(settings)
 app = FastAPI(title="Live Outfit Agent", version="0.1.0")
+# 開発時に `flutter run -d chrome`(別ポート)から API を呼べるようにする。
+# 本番は同一オリジン配信、モバイルアプリは CORS の対象外なので、既定では localhost のみ許可する。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=settings.cors_origin_regex,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 _URL = re.compile(r"^https?://", re.I)
 
@@ -40,12 +52,13 @@ def _clean(value: str | None) -> str | None:
 def validate_event_input(inp: EventInput) -> list[str]:
     """F31 入力バリデーション(公演情報)。"""
     errors: list[str] = []
-    if not inp.event_url and not inp.artist_name:
-        errors.append("公演URLまたはアーティスト名のどちらかを入力してください。")
-    if inp.event_url and not _URL.match(inp.event_url):
-        errors.append("公演URLは http:// または https:// から始まるURLを入力してください。")
+    if not inp.keyword and not inp.artist_name:
+        errors.append("検索キーワードまたはアーティスト名のどちらかを入力してください。")
+    for label, value in (("検索キーワード", inp.keyword), ("アーティスト名", inp.artist_name)):
+        if value and _URL.match(value):
+            errors.append(f"{label}にURLは入力できません。アーティスト名や公演名で検索してください。")
     if inp.mv_url and not youtube_video_id(inp.mv_url):
-        errors.append("公式MVのURLはYouTubeの動画URLを入力してください。")
+        errors.append("公式MVのURLが正しくありません。もう一度検索して公演を選び直してください。")
     if inp.event_date:
         try:
             date.fromisoformat(inp.event_date)
@@ -69,20 +82,55 @@ async def client_config() -> dict:
     }
 
 
+@app.get("/api/events/search")
+async def search_events(
+    q: Annotated[str, Query(max_length=100)] = "",
+    artist_name: Annotated[str, Query(max_length=100)] = "",
+    event_title: Annotated[str, Query(max_length=100)] = "",
+    genre: Annotated[str, Query(max_length=50)] = "",
+    venue: Annotated[str, Query(max_length=100)] = "",
+    event_date: Annotated[str, Query(max_length=10)] = "",
+) -> JSONResponse:
+    """F05: キーワード(アーティスト名・公演名など)と詳細条件から公演の候補を探す。"""
+    conditions = search_conditions(artist_name, event_title, genre, venue, event_date)
+    keyword = q.strip() or conditions.get("アーティスト名") or conditions.get("公演名", "")
+    if not keyword:
+        return JSONResponse(
+            status_code=422, content={"errors": ["検索キーワード(またはアーティスト名・公演名)を入力してください。"]}
+        )
+    if any(_URL.match(v) for v in (keyword, *conditions.values())):
+        return JSONResponse(
+            status_code=422, content={"errors": ["URLでは検索できません。アーティスト名や公演名を入力してください。"]}
+        )
+    try:
+        result = await asyncio.wait_for(
+            gateway.search_events(keyword, conditions=conditions), timeout=settings.step_timeout_sec
+        )
+    except Exception:  # noqa: BLE001 - 検索できなくても手入力で続けられる
+        logger.exception("公演検索に失敗")
+        return JSONResponse(
+            status_code=503,
+            content={"errors": ["公演を検索できませんでした。時間をおいて再度お試しいただくか、アーティスト名を手入力してください。"]},
+        )
+    return JSONResponse(content=result.model_dump())
+
+
 @app.post("/api/proposals")
 async def create_proposal(
     images: Annotated[list[UploadFile], File(description="手持ち服の画像(複数可)")],
     consent: Annotated[bool, Form(description="画像利用への同意")] = False,
-    event_url: Annotated[str | None, Form()] = None,
+    keyword: Annotated[str | None, Form()] = None,
     artist_name: Annotated[str | None, Form()] = None,
+    event_title: Annotated[str | None, Form()] = None,
     genre: Annotated[str | None, Form()] = None,
     event_date: Annotated[str | None, Form()] = None,
     venue: Annotated[str | None, Form()] = None,
     mv_url: Annotated[str | None, Form()] = None,
 ):
     event_input = EventInput(
-        event_url=_clean(event_url),
+        keyword=_clean(keyword),
         artist_name=_clean(artist_name),
+        event_title=_clean(event_title),
         genre=_clean(genre),
         event_date=_clean(event_date),
         venue=_clean(venue),

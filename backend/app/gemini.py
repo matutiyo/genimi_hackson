@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import date
 from typing import TypeVar
 
 import httpx
@@ -23,10 +24,12 @@ from .schemas import (
     ClosetImage,
     CriticLlmOutput,
     CultureSummary,
-    EventInfo,
+    EventCandidate,
+    EventSearchResult,
     GenreMatch,
     MvStyle,
     OutfitCandidate,
+    SearchSource,
     StyleProfile,
     VenueInfo,
 )
@@ -55,6 +58,59 @@ def _extract_json(text: str) -> str:
     return text[start : end + 1]
 
 
+def _valid_date(value: str | None) -> str | None:
+    try:
+        return date.fromisoformat(value).isoformat() if value else None
+    except ValueError:
+        return None
+
+
+def search_conditions(
+    artist_name: str | None = None,
+    event_title: str | None = None,
+    genre: str | None = None,
+    venue: str | None = None,
+    event_date: str | None = None,
+) -> dict[str, str]:
+    """詳細検索の条件(入力のあったものだけ)。キーは Gemini に渡す項目名。"""
+    labeled = {"アーティスト名": artist_name, "公演名": event_title, "ジャンル": genre, "会場": venue, "公演日": event_date}
+    return {label: value.strip() for label, value in labeled.items() if value and value.strip()}
+
+
+def _conditions_text(conditions: dict[str, str] | None) -> str:
+    lines = [f"  - {label}: {value}" for label, value in (conditions or {}).items() if value]
+    if not lines:
+        return ""
+    return "- 次の詳細条件にすべて合う公演だけを候補にすること(合うものが無ければ \"candidates\": [])。\n" + "\n".join(lines) + "\n"
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"[\s・._\-]", "", text).lower()
+
+
+async def _verify_mv(artist: str, url: str | None) -> tuple[str | None, str | None]:
+    """検索結果の MV URL が実在し、アーティストの動画であることを YouTube oEmbed で確かめる。
+
+    LLM が存在しない動画IDを返すことがあるため、確認できないものは使わない(None を返す)。
+    """
+    if not url or not youtube_video_id(url):
+        return None, None
+    canonical = f"https://www.youtube.com/watch?v={youtube_video_id(url)}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            resp = await http.get("https://www.youtube.com/oembed", params={"url": canonical, "format": "json"})
+            resp.raise_for_status()
+            info = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("MV URL を確認できませんでした: %s (%s)", canonical, exc)
+        return None, None
+    title, channel = info.get("title") or "", info.get("author_name") or ""
+    if _normalize(artist) not in _normalize(title + channel):
+        logger.info("MV がアーティストのものと確認できませんでした: %s / %s", title, channel)
+        return None, None
+    return canonical, title
+
+
 class GeminiGateway:
     """実際の Gemini API を呼ぶ実装。"""
 
@@ -81,20 +137,41 @@ class GeminiGateway:
             return response.parsed
         return schema.model_validate_json(response.text or "")
 
-    # ---- P04 公演URL解析(URL Context ツール) -----------------------------
-    async def parse_event_url(self, url: str) -> EventInfo:
+    # ---- P04 公演キーワード検索(Google 検索グラウンディング) -------------
+    async def search_events(
+        self, keyword: str, limit: int = 5, conditions: dict[str, str] | None = None
+    ) -> EventSearchResult:
+        """conditions: 詳細検索の条件(項目名 → 値)。候補はこの条件に合うものに絞り込む。"""
+        prompt = prompts.EVENT_SEARCH_PROMPT.format(
+            keyword=keyword,
+            today=date.today().isoformat(),
+            limit=limit,
+            conditions=_conditions_text(conditions),
+        )
         response = await self.client.aio.models.generate_content(
             model=self.settings.text_model,
-            contents=[prompts.EVENT_URL_PROMPT.format(url=url)],
+            contents=[prompt],
             config=types.GenerateContentConfig(
-                tools=[types.Tool(url_context=types.UrlContext())],
+                tools=[types.Tool(google_search=types.GoogleSearch())],
                 temperature=0.0,
             ),
         )
         data = json.loads(_extract_json(response.text or ""))
-        if not data.get("artist_name"):
-            raise ValueError("URLからアーティスト名を抽出できませんでした")
-        return EventInfo(**{k: data.get(k) for k in EventInfo.model_fields if k in data}, source="url")
+        candidates: list[EventCandidate] = []
+        for raw in data.get("candidates") or []:
+            if not isinstance(raw, dict) or not raw.get("artist_name"):
+                continue
+            candidate = EventCandidate(**{k: raw.get(k) for k in EventCandidate.model_fields if k in raw})
+            candidate.event_date = _valid_date(candidate.event_date)
+            candidate.mv_url, candidate.mv_title = await _verify_mv(candidate.artist_name, candidate.mv_url)
+            candidates.append(candidate)
+
+        sources: list[SearchSource] = []
+        metadata = response.candidates[0].grounding_metadata if response.candidates else None
+        for chunk in (metadata.grounding_chunks if metadata else None) or []:
+            if chunk.web and chunk.web.uri and len(sources) < 5:
+                sources.append(SearchSource(title=chunk.web.title or chunk.web.uri, url=chunk.web.uri))
+        return EventSearchResult(candidates=candidates[:limit], sources=sources)
 
     # ---- P05 カルチャー情報 ----------------------------------------------
     async def match_genre(self, artist: str, genre: str | None, candidates: list[dict]) -> GenreMatch:

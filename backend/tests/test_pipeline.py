@@ -47,25 +47,47 @@ async def test_full_flow_runs_critic_loop_and_returns_result():
 
 
 @pytest.mark.asyncio
-async def test_url_failure_falls_back_to_manual_input():
-    inp = MANUAL.model_copy(update={"event_url": "https://example.com/fail"})
+async def test_selected_candidate_is_used_without_searching_again():
+    inp = MANUAL.model_copy(update={"keyword": "fail", "event_title": "TEST TOUR"})
     msgs = await collect(inp, images("a.png", "b.png", "c.png"))
     result = msgs[-1]["result"]
     assert result["event"]["artist_name"] == "テストバンド"
-    assert any("公演URL" in n for n in result["notes"])
+    assert result["event"]["event_title"] == "TEST TOUR"
+    assert result["event"]["source"] == "manual"
+    assert not any("検索" in n for n in result["notes"])
 
 
 @pytest.mark.asyncio
-async def test_url_only_success():
-    msgs = await collect(EventInput(event_url="https://example.com/live"), images("a.png", "b.png", "c.png"))
+async def test_keyword_only_uses_top_search_result():
+    msgs = await collect(EventInput(keyword="モックバンド"), images("a.png", "b.png", "c.png"))
     result = msgs[-1]["result"]
-    assert result["event"]["source"] == "url"
+    assert result["event"]["source"] == "search"
     assert result["event"]["venue"] == "Zepp Haneda"
+    assert result["mv_style"]["analyzed_from"] == "video"
+    assert any("検索結果" in n for n in result["notes"])
 
 
 @pytest.mark.asyncio
-async def test_url_failure_without_artist_is_fatal():
-    msgs = await collect(EventInput(event_url="https://example.com/fail"), images("a.png"))
+async def test_keyword_with_detail_conditions_narrows_search():
+    msgs = await collect(EventInput(keyword="モックバンド", venue="幕張メッセ"), images("a.png", "b.png", "c.png"))
+    event = msgs[-1]["result"]["event"]
+    assert event["source"] == "search+manual"
+    assert event["event_title"] == "MOCK FES 2027"
+    assert event["venue"] == "幕張メッセ"
+
+
+@pytest.mark.asyncio
+async def test_search_failure_falls_back_to_keyword_as_artist():
+    for keyword in ("fail-band", "nohit-band"):
+        msgs = await collect(EventInput(keyword=keyword), images("a.png", "b.png", "c.png"))
+        result = msgs[-1]["result"]
+        assert result["event"]["artist_name"] == keyword
+        assert any("検索できなかった" in n for n in result["notes"])
+
+
+@pytest.mark.asyncio
+async def test_missing_artist_is_fatal():
+    msgs = await collect(EventInput(), images("a.png"))
     assert msgs[-1]["type"] == "error"
     assert "アーティスト名" in msgs[-1]["message"]
 
